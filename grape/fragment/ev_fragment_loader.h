@@ -117,7 +117,9 @@ class EVFragmentLoader {
         }
         id_list.push_back(vertex_id);
         vdata_list.push_back(v_data);
+        std::cout << "vertex: " << vertex_id << " " << v_data << std::endl;
       }
+      std::cout << "number of lines: " << line_no << std::endl;
       io_adaptor->Close();
     }
 

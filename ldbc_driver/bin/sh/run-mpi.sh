@@ -28,7 +28,7 @@ echo ${@:5}
 # the binary is sync to ${HOME}/bin/standard/run_app
 # switch to $HOME before mpirun
 pushd ${HOME}
-mpirun --map-by ppr:1:node --bind-to none --host $1 ${@:5} &
+mpirun --allow-run-as-root --map-by ppr:1:node --bind-to none --host $1 ${@:5} &
 popd
 
 echo $! > $LOG_PATH/executable.pid

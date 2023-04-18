@@ -2,7 +2,7 @@
 set -ex
 
 # normal or ci mode
-MODE="normal"
+MODE="ci"
 
 # we use a moderate size graph as example, see full list of dataset at https://graphalytics.org/datasets
 GRAPH_NAME="datagen-7_6-fb"

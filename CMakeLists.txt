@@ -31,6 +31,7 @@ if (WCC_USE_GID)
   add_definitions(-DWCC_USE_GID)
 endif ()
 
+include_directories(SYSTEM ${ARROW_INCLUDE_DIR})
 include_directories(SYSTEM thirdparty)
 
 # ------------------------------------------------------------------------------
@@ -41,9 +42,9 @@ set(DEFAULT_BUILD_TYPE "Release")
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "Setting build type to '${DEFAULT_BUILD_TYPE}' as none was specified.")
   set(CMAKE_BUILD_TYPE "${DEFAULT_BUILD_TYPE}" CACHE
-      STRING "Choose the type of build." FORCE)
+    STRING "Choose the type of build." FORCE)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
-               "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
+    "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif ()
 
 message(STATUS "[libgrape-lite] will build in type: ${CMAKE_BUILD_TYPE}")
@@ -78,6 +79,22 @@ if (WITH_ASAN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
 endif ()
 
+# find arrow
+find_package(Arrow QUIET)
+if(Arrow_FOUND)
+  set(ARROW_INCLUDE_DIR)
+  if (TARGET arrow_shared)
+    set(ARROW_LIB arrow_shared)
+  endif()
+  if (TARGET arrow_static)
+    set(ARROW_LIB arrow_static)
+  endif()
+else()
+  include("cmake/FindArrow.cmake")
+  if(NOT ARROW_FOUND)
+    message(FATAL_ERROR "apache-arrow is required, please install it and retry")
+  endif()
+endif()
 
 # find CUDA, 9.0 at least
 find_package(CUDA 9 QUIET)
@@ -92,8 +109,8 @@ else()
     message(WARNING "Disable GPU support because NCCL >= 2.7 not found")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
   elseif ((NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/thirdparty/cub/.git") OR
-          (NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/thirdparty/thrust/.git") OR
-          (NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/thirdparty/moderngpu/.git"))
+    (NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/thirdparty/thrust/.git") OR
+    (NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/thirdparty/moderngpu/.git"))
     message(WARNING "Disable GPU support because dependencies not found, please run 'git submodules update --init --recursive'")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
   else ()
@@ -104,8 +121,8 @@ else()
 
     include_directories(${CUDA_TOOLKIT_INCLUDE})
     set(CUDA_LIBS ${CUDA_TOOLKIT_TARGET_DIR}/lib64/stubs/libcuda.so
-                  ${CUDA_TOOLKIT_TARGET_DIR}/lib64/libnvToolsExt.so
-                  ${CUDA_TOOLKIT_TARGET_DIR}/lib64/libcudart.so)
+      ${CUDA_TOOLKIT_TARGET_DIR}/lib64/libnvToolsExt.so
+      ${CUDA_TOOLKIT_TARGET_DIR}/lib64/libcudart.so)
 
     if(${CMAKE_VERSION} VERSION_LESS_EQUAL "3.13.4")
       cuda_select_nvcc_arch_flags(ARCH_FLAGS "Auto")
@@ -185,11 +202,11 @@ endif ()
 macro(install_libgrapelite_target target)
   # install
   install(TARGETS ${target}
-          EXPORT libgrapelite-targets
-          ARCHIVE DESTINATION lib
-          LIBRARY DESTINATION lib
-          RUNTIME DESTINATION bin
-  )
+    EXPORT libgrapelite-targets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+    )
 endmacro()
 
 # ------------------------------------------------------------------------------
@@ -200,8 +217,10 @@ add_library(grape-lite ${CORE_SRC_FILES})
 install_libgrapelite_target(grape-lite)
 
 target_link_libraries(grape-lite ${MPI_CXX_LIBRARIES}
-                                 ${CMAKE_THREAD_LIBS_INIT}
-                                 ${GLOG_LIBRARIES})
+  ${CMAKE_THREAD_LIBS_INIT}
+  ${GLOG_LIBRARIES}
+  ${ARROW_LIB}
+  curl)
 
 if (JEMALLOC_FOUND)
   target_link_libraries(grape-lite ${JEMALLOC_LIBRARIES})
@@ -211,12 +230,12 @@ if (NOT GFLAGS_FOUND)
   message(WARNING "Disable analytical_apps because gflags not found")
 else ()
   add_executable(analytical_apps examples/analytical_apps/flags.cc
-                 examples/analytical_apps/run_app.cc)
+    examples/analytical_apps/run_app.cc)
   target_include_directories(analytical_apps PRIVATE
-                             examples/analytical_apps)
+    examples/analytical_apps)
   set_target_properties(analytical_apps PROPERTIES OUTPUT_NAME run_app)
   target_link_libraries(analytical_apps grape-lite ${MPI_CXX_LIBRARIES}
-                        ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES} ${CMAKE_DL_LIBS})
+    ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES} ${CMAKE_DL_LIBS})
   install_libgrapelite_target(analytical_apps)
 
   file(GLOB TEST_FILES RELATIVE "${PROJECT_SOURCE_DIR}/tests" "${PROJECT_SOURCE_DIR}/tests/*.cc")
@@ -231,7 +250,7 @@ else ()
     endif()
     target_include_directories(${T_NAME} PRIVATE examples/analytical_apps)
     target_link_libraries(${T_NAME} PRIVATE grape-lite ${MPI_CXX_LIBRARIES}
-                          ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES} ${CMAKE_DL_LIBS})
+      ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES} ${CMAKE_DL_LIBS})
   endforeach()
 
   if (WITH_CUDA)
@@ -252,11 +271,11 @@ else ()
   add_executable(gnn_sampler examples/gnn_sampler/run_sampler.cc)
   set_target_properties(gnn_sampler PROPERTIES OUTPUT_NAME run_sampler)
   target_include_directories(gnn_sampler PRIVATE
-                             examples/gnn_sampler
-                             examples/gnn_sampler/thirdparty
-                             ${RDKAFKA_INCLUDE_DIR})
+    examples/gnn_sampler
+    examples/gnn_sampler/thirdparty
+    ${RDKAFKA_INCLUDE_DIR})
   target_link_libraries(gnn_sampler grape-lite ${MPI_CXX_LIBRARIES}
-                        ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES} ${CMAKE_DL_LIBS} ${RDKAFKA_LIBRARIES})
+    ${GLOG_LIBRARIES} ${GFLAGS_LIBRARIES} ${CMAKE_DL_LIBS} ${RDKAFKA_LIBRARIES})
   install_libgrapelite_target(gnn_sampler)
 endif ()
 
@@ -264,89 +283,89 @@ set(EXAMPLES_DIR ${PROJECT_SOURCE_DIR}/examples)
 
 if (PROFILING)
   install(DIRECTORY ${PROJECT_SOURCE_DIR}/thirdparty/atlarge-research-granula
-          DESTINATION include # target directory
-          FILES_MATCHING      # install only matched files
-          PATTERN "*.h"       # select header files
-  )
+    DESTINATION include # target directory
+    FILES_MATCHING      # install only matched files
+    PATTERN "*.h"       # select header files
+    )
 endif()
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/thirdparty/flat_hash_map
-                  ${PROJECT_SOURCE_DIR}/thirdparty/string_view
-        DESTINATION include
-        FILES_MATCHING
-        PATTERN "*.h"
-        PATTERN "*.hpp"
-)
+  ${PROJECT_SOURCE_DIR}/thirdparty/string_view
+  DESTINATION include
+  FILES_MATCHING
+  PATTERN "*.h"
+  PATTERN "*.hpp"
+  )
 
 if (WITH_CUDA)
   install(DIRECTORY ${PROJECT_SOURCE_DIR}/thirdparty/cub/cub
-                    ${PROJECT_SOURCE_DIR}/thirdparty/thrust/thrust
-                    ${PROJECT_SOURCE_DIR}/thirdparty/moderngpu/src/moderngpu
-          DESTINATION include
-          FILES_MATCHING
-          PATTERN "*.h"
-          PATTERN "*.cuh"
-          PATTERN "*.hpp"
-          PATTERN "*.hxx"
-  )
+    ${PROJECT_SOURCE_DIR}/thirdparty/thrust/thrust
+    ${PROJECT_SOURCE_DIR}/thirdparty/moderngpu/src/moderngpu
+    DESTINATION include
+    FILES_MATCHING
+    PATTERN "*.h"
+    PATTERN "*.cuh"
+    PATTERN "*.hpp"
+    PATTERN "*.hxx"
+    )
   install(DIRECTORY ${PROJECT_SOURCE_DIR}/thirdparty/cuda_hashmap
-          DESTINATION include/cuda_hashmap
-          FILES_MATCHING
-          PATTERN "*.h"
-  )
+    DESTINATION include/cuda_hashmap
+    FILES_MATCHING
+    PATTERN "*.h"
+    )
 endif ()
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/grape
-        DESTINATION include
-        FILES_MATCHING
-        PATTERN "*.h"
-)
+  DESTINATION include
+  FILES_MATCHING
+  PATTERN "*.h"
+  )
 
 install(DIRECTORY ${EXAMPLES_DIR}/analytical_apps/bfs
-                  ${EXAMPLES_DIR}/analytical_apps/cdlp
-                  ${EXAMPLES_DIR}/analytical_apps/lcc
-                  ${EXAMPLES_DIR}/analytical_apps/pagerank
-                  ${EXAMPLES_DIR}/analytical_apps/sssp
-                  ${EXAMPLES_DIR}/analytical_apps/wcc
-                  ${EXAMPLES_DIR}/analytical_apps/cuda
-        DESTINATION include/grape/analytical_apps
-        FILES_MATCHING
-        PATTERN "*.h"
-)
+  ${EXAMPLES_DIR}/analytical_apps/cdlp
+  ${EXAMPLES_DIR}/analytical_apps/lcc
+  ${EXAMPLES_DIR}/analytical_apps/pagerank
+  ${EXAMPLES_DIR}/analytical_apps/sssp
+  ${EXAMPLES_DIR}/analytical_apps/wcc
+  ${EXAMPLES_DIR}/analytical_apps/cuda
+  DESTINATION include/grape/analytical_apps
+  FILES_MATCHING
+  PATTERN "*.h"
+  )
 
 install(DIRECTORY ${EXAMPLES_DIR}/gnn_sampler
-        DESTINATION include/grape/analytical_apps
-        FILES_MATCHING
-        PATTERN "*.h"
-)
+  DESTINATION include/grape/analytical_apps
+  FILES_MATCHING
+  PATTERN "*.h"
+  )
 
 configure_file(libgrapelite-config.in.cmake
-               "${PROJECT_BINARY_DIR}/libgrapelite-config.cmake" @ONLY
-)
+  "${PROJECT_BINARY_DIR}/libgrapelite-config.cmake" @ONLY
+  )
 
 configure_file(libgrapelite-config-version.in.cmake
-               "${PROJECT_BINARY_DIR}/libgrapelite-config-version.cmake" @ONLY
-)
+  "${PROJECT_BINARY_DIR}/libgrapelite-config-version.cmake" @ONLY
+  )
 
 install(FILES "${PROJECT_BINARY_DIR}/libgrapelite-config.cmake"
-              "${PROJECT_BINARY_DIR}/libgrapelite-config-version.cmake"
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libgrapelite
-)
+  "${PROJECT_BINARY_DIR}/libgrapelite-config-version.cmake"
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libgrapelite
+  )
 
 install(EXPORT libgrapelite-targets
-        FILE libgrapelite-targets.cmake
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libgrapelite
-)
+  FILE libgrapelite-targets.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libgrapelite
+  )
 
 # ------------------------------------------------------------------------------
 # format code
 # ------------------------------------------------------------------------------
 file(GLOB_RECURSE FILES_NEED_FORMAT "grape/*.cc"
-                                    "grape/*.h"
-                                    "examples/*.h"
-                                    "examples/*.cc"
-                                    "tests/*.h"
-                                    "tests/*.cc")
+  "grape/*.h"
+  "examples/*.h"
+  "examples/*.cc"
+  "tests/*.h"
+  "tests/*.cc")
 foreach (file_path ${FILES_NEED_FORMAT})
   if (${file_path} MATCHES ".*thirdparty.*")
     list(REMOVE_ITEM FILES_NEED_FORMAT ${file_path})
@@ -354,25 +373,25 @@ foreach (file_path ${FILES_NEED_FORMAT})
 endforeach ()
 
 add_custom_target(clformat
-                  COMMAND clang-format --style=file -i ${FILES_NEED_FORMAT}
-                  COMMENT "Running clang-format."
-                  VERBATIM)
+  COMMAND clang-format --style=file -i ${FILES_NEED_FORMAT}
+  COMMENT "Running clang-format."
+  VERBATIM)
 
 # ------------------------------------------------------------------------------
 # cpplint, check for readability with Google style
 # ------------------------------------------------------------------------------
 add_custom_target(cpplint
-                  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/misc/cpplint.py ${FILES_NEED_FORMAT}
-                  COMMENT "Running cpplint check."
-                  VERBATIM)
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/misc/cpplint.py ${FILES_NEED_FORMAT}
+  COMMENT "Running cpplint check."
+  VERBATIM)
 
 # ------------------------------------------------------------------------------
 # generate docs
 # ------------------------------------------------------------------------------
 if(BUILD_LIBGRAPELITE_DOCS)
   add_custom_target(doc COMMAND doxygen "${CMAKE_CURRENT_SOURCE_DIR}/misc/doc-config"
-                    COMMENT "Generating docs."
-                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-                    VERBATIM)
+    COMMENT "Generating docs."
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    VERBATIM)
 endif()
 

@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef GRAPE_FRAGMENT_PARTITIONER_H_
 #define GRAPE_FRAGMENT_PARTITIONER_H_
 
+#include <iostream>
 #include <vector>
 
 #include "flat_hash_map/flat_hash_map.hpp"

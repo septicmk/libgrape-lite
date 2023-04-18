@@ -23,6 +23,7 @@ limitations under the License.
 #include "grape/fragment/ev_fragment_mutator.h"
 #include "grape/fragment/partitioner.h"
 #include "grape/io/local_io_adaptor.h"
+#include "grape/io/arrow_io_adaptor.h"
 
 namespace grape {
 /**
