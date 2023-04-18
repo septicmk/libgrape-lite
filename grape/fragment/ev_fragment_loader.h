@@ -107,8 +107,9 @@ class EVFragmentLoader {
           VLOG(10) << "[worker-" << comm_spec_.worker_id() << "][vfile] "
                    << line_no;
         }
-        if (line.empty() || line[0] == '#')
+        if (line.empty() || line[0] == '#') {
           continue;
+        }
         try {
           line_parser_.LineParserForVFile(line, vertex_id, v_data);
         } catch (std::exception& e) {
@@ -117,9 +118,7 @@ class EVFragmentLoader {
         }
         id_list.push_back(vertex_id);
         vdata_list.push_back(v_data);
-        std::cout << "vertex: " << vertex_id << " " << v_data << std::endl;
       }
-      std::cout << "number of lines: " << line_no << std::endl;
       io_adaptor->Close();
     }
 
@@ -155,8 +154,9 @@ class EVFragmentLoader {
           VLOG(10) << "[worker-" << comm_spec_.worker_id() << "][efile] "
                    << lineNo;
         }
-        if (line.empty() || line[0] == '#')
+        if (line.empty() || line[0] == '#') {
           continue;
+        }
 
         try {
           line_parser_.LineParserForEFile(line, src, dst, e_data);

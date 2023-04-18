@@ -30,15 +30,43 @@ limitations under the License.
 #include "grape/io/io_adaptor_base.h"
 
 #ifndef RETURN_ON_ARROW_ERROR_AND_ASSIGN
-#define RETURN_ON_ARROW_ERROR_AND_ASSIGN(lhs, expr)         \
-  do {                                                      \
-    auto result = (expr);                                   \
-    if (!result.status().ok()) {                            \
-      std::cout << result.status().ToString() << std::endl; \
-    }                                                       \
-    lhs = std::move(result).ValueOrDie();                   \
+#define RETURN_ON_ARROW_ERROR_AND_ASSIGN(lhs, expr) \
+  do {                                              \
+    auto result = (expr);                           \
+    if (!result.status().ok()) {                    \
+      return false;                                 \
+    }                                               \
+    lhs = std::move(result).ValueOrDie();           \
   } while (0)
 #endif  // RETURN_ON_ARROW_ERROR_AND_ASSIGN
+
+#ifndef DISCARD_ARROW_ERROR_AND_ASSIGN
+#define DISCARD_ARROW_ERROR_AND_ASSIGN(lhs, expr) \
+  do {                                            \
+    auto result = (expr);                         \
+    lhs = std::move(result).ValueOrDie();         \
+  } while (0)
+#endif  // DISCARD_ARROW_ERROR_AND_ASSIGN
+
+#ifndef RETURN_ON_ARROW_ERROR
+#define RETURN_ON_ARROW_ERROR(expr) \
+  do {                              \
+    auto status = (expr);           \
+    if (!status.ok()) {             \
+      return false;                 \
+    }                               \
+  } while (0)
+#endif  // RETURN_ON_ARROW_ERROR_AND
+
+#ifndef RETURN_ON_ERROR
+#define RETURN_ON_ERROR(expr) \
+  do {                        \
+    auto status = (expr);     \
+    if (!status) {            \
+      return false;           \
+    }                         \
+  } while (0)
+#endif  // RETURN_ON_ARROW
 
 namespace grape {
 class InArchive;
@@ -87,13 +115,12 @@ class ArrowIOAdaptor : public IOAdaptorBase {
 
  private:
   int64_t tell();
-  void seek(const int64_t offset, const FileLocation seek_from);
+  bool seek(const int64_t offset, const FileLocation seek_from);
   bool setPartialReadImpl();
-  bool preReadPartialTable();
+  bool preReadPartialTable(bool partial);
+  std::string realPath(std::string const& path);
 
-  FILE* file_;
   std::string location_;
-  bool using_std_getline_;
   bool enable_partial_read_;
   int total_parts_;
   int index_;

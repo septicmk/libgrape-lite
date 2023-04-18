@@ -43,7 +43,7 @@ function RunApp() {
   NP=$1; shift
   APP=$1; shift
 
-  cmd="mpirun --allow-run-as-root -n ${NP} ./run_app --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e --application ${APP} --out_prefix ./extra_tests_output $@"
+  cmd="mpirun -n ${NP} ./run_app --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e --application ${APP} --out_prefix ./extra_tests_output $@"
   echo ${cmd}
   eval ${cmd}
 }

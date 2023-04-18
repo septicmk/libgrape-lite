@@ -18,6 +18,7 @@ limitations under the License.
 #include <glog/logging.h>
 #include <sys/stat.h>
 
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -32,15 +33,11 @@ limitations under the License.
 namespace grape {
 
 ArrowIOAdaptor::ArrowIOAdaptor(std::string location)
-    : file_(nullptr),
-      location_(std::move(location)),
-      using_std_getline_(false),
+    : location_(std::move(location)),
       enable_partial_read_(false),
       total_parts_(0),
       index_(0) {
-  batch_idx_ = 0;
-  row_idx_ = 0;
-  fs_ = arrow::fs::FileSystemFromUriOrPath(location_, &location_).ValueOrDie();
+  fs_ = std::make_shared<arrow::fs::LocalFileSystem>();
 }
 
 ArrowIOAdaptor::~ArrowIOAdaptor() {
@@ -58,33 +55,35 @@ int64_t ArrowIOAdaptor::tell() {
   return -1;
 }
 
-void ArrowIOAdaptor::seek(const int64_t offset, const FileLocation seek_from) {
+bool ArrowIOAdaptor::seek(const int64_t offset, const FileLocation seek_from) {
   if (!ifp_) {
-    return;
-  }
-  switch (seek_from) {
-  case kFileLocationBegin: {
-    ifp_->Seek(offset);
-  } break;
-  case kFileLocationCurrent: {
-    auto p = ifp_->Tell();
-    if (p.ok()) {
-      ifp_->Seek(p.ValueUnsafe() + offset);
-    } else {
-      return;
+    return false;
+  } else {
+    switch (seek_from) {
+    case kFileLocationBegin: {
+      auto status = ifp_->Seek(offset);
+    } break;
+    case kFileLocationCurrent: {
+      auto p = ifp_->Tell();
+      if (p.ok()) {
+        RETURN_ON_ARROW_ERROR(ifp_->Seek(p.ValueUnsafe() + offset));
+      } else {
+        return false;
+      }
+    } break;
+    case kFileLocationEnd: {
+      auto sz = ifp_->GetSize();
+      if (sz.ok()) {
+        RETURN_ON_ARROW_ERROR(ifp_->Seek(sz.ValueUnsafe() - offset));
+      } else {
+        return false;
+      }
+    } break;
+    default: {
+      return false;
     }
-  } break;
-  case kFileLocationEnd: {
-    auto sz = ifp_->GetSize();
-    if (sz.ok()) {
-      ifp_->Seek(sz.ValueUnsafe() - offset);
-    } else {
-      return;
     }
-  } break;
-  default: {
-    return;
-  }
+    return true;
   }
 }
 
@@ -93,6 +92,7 @@ void ArrowIOAdaptor::Open() { return this->Open("r"); }
 void ArrowIOAdaptor::Open(const char* mode) {
   if (strchr(mode, 'w') != NULL || strchr(mode, 'a') != NULL) {
     int t = location_.find_last_of('/');
+
     if (t != -1) {
       std::string folder_path = location_.substr(0, t);
       if (access(folder_path.c_str(), 0) != 0) {
@@ -101,18 +101,23 @@ void ArrowIOAdaptor::Open(const char* mode) {
     }
 
     if (strchr(mode, 'w') != NULL) {
-      RETURN_ON_ARROW_ERROR_AND_ASSIGN(ofp_, fs_->OpenOutputStream(location_));
+      DISCARD_ARROW_ERROR_AND_ASSIGN(
+          ofp_, fs_->OpenOutputStream(realPath(location_)));
     } else {
-      RETURN_ON_ARROW_ERROR_AND_ASSIGN(ofp_, fs_->OpenAppendStream(location_));
+      DISCARD_ARROW_ERROR_AND_ASSIGN(
+          ofp_, fs_->OpenAppendStream(realPath(location_)));
     }
     return;
   } else {
-    RETURN_ON_ARROW_ERROR_AND_ASSIGN(ifp_, fs_->OpenInputFile(location_));
+    DISCARD_ARROW_ERROR_AND_ASSIGN(ifp_,
+                                   fs_->OpenInputFile(realPath(location_)));
 
-    // check the partial read flag
-    if (enable_partial_read_) {
-      setPartialReadImpl();
-      preReadPartialTable();
+    if (!strchr(mode, 'b')) {
+      // check the partial read flag
+      if (enable_partial_read_) {
+        setPartialReadImpl();
+      }
+      preReadPartialTable(enable_partial_read_);
     }
   }
 }
@@ -142,13 +147,19 @@ bool ArrowIOAdaptor::SetPartialRead(const int index, const int total_parts) {
   return true;
 }
 
-bool ArrowIOAdaptor::preReadPartialTable() {
-  std::cout << "Reading CSV with Arrow." << std::endl;
+bool ArrowIOAdaptor::preReadPartialTable(bool partial) {
   int index = index_;
-  int64_t offset = partial_read_offset_[index];
-  int64_t nbytes =
-      partial_read_offset_[index + 1] - partial_read_offset_[index];
-  std::cout << "offset: " << offset << " nbytes: " << nbytes << std::endl;
+  int64_t offset, nbytes;
+  if (partial) {
+    offset = partial_read_offset_[index];
+    nbytes = partial_read_offset_[index + 1] - partial_read_offset_[index];
+  } else {
+    RETURN_ON_ERROR(seek(0, kFileLocationEnd));
+    offset = 0;
+    nbytes = tell();
+  }
+  batch_idx_ = 0;
+  row_idx_ = 0;
 
 #if defined(ARROW_VERSION) && ARROW_VERSION <= 9000000
   std::shared_ptr<arrow::io::InputStream> input =
@@ -164,7 +175,9 @@ bool ArrowIOAdaptor::preReadPartialTable() {
   auto read_options = arrow::csv::ReadOptions::Defaults();
   auto parse_options = arrow::csv::ParseOptions::Defaults();
   auto convert_options = arrow::csv::ConvertOptions::Defaults();
-  // parse_options.delimiter = delimiter_;
+  read_options.autogenerate_column_names = true;
+  parse_options.delimiter = delimiter_;
+  read_options.use_threads = false;
 
   std::shared_ptr<arrow::csv::TableReader> reader;
 #if defined(ARROW_VERSION) && ARROW_VERSION >= 4000000
@@ -187,14 +200,23 @@ bool ArrowIOAdaptor::preReadPartialTable() {
       return false;
     }
   }
-  std::cout << "get partial table" << std::endl;
   preread_table_ = result.ValueOrDie();
+
+  std::shared_ptr<arrow::Table> table = preread_table_;
+  arrow::TableBatchReader batch_reader(*table);
+  auto s = batch_reader.ReadAll(&batches_);
 
   return true;
 }
 
+std::string ArrowIOAdaptor::realPath(std::string const& path) {
+  char absolute_path_c[LINESIZE];
+  if (realpath(path.c_str(), absolute_path_c)) {}
+  return std::string(absolute_path_c);
+}
+
 bool ArrowIOAdaptor::setPartialReadImpl() {
-  seek(0, kFileLocationEnd);
+  RETURN_ON_ERROR(seek(0, kFileLocationEnd));
   int64_t total_file_size = tell();
   int64_t part_size = total_file_size / total_parts_;
 
@@ -209,7 +231,7 @@ bool ArrowIOAdaptor::setPartialReadImpl() {
       partial_read_offset_[i] = partial_read_offset_[i - 1];
     } else {
       // traversing backwards to find the nearest character '\n',
-      seek(partial_read_offset_[i], kFileLocationBegin);
+      RETURN_ON_ERROR(seek(partial_read_offset_[i], kFileLocationBegin));
       int dis = 0;
       while (true) {
         char buffer[1];
@@ -230,61 +252,52 @@ bool ArrowIOAdaptor::setPartialReadImpl() {
   }
 
   int64_t file_stream_pos = partial_read_offset_[index_];
-  seek(file_stream_pos, kFileLocationBegin);
+  RETURN_ON_ERROR(seek(file_stream_pos, kFileLocationBegin));
   return true;
 }
 
 bool ArrowIOAdaptor::ReadLine(std::string& line) {
-  std::cout << "Arrow Read Line " << std::endl;
   if (preread_table_ == nullptr) {
     return false;
   }
   std::shared_ptr<arrow::Table> table = preread_table_;
 
-  auto batch_reader = arrow::TableBatchReader(*table);
-  auto s = batch_reader.ReadAll(batches);
+  if ((size_t) batch_idx_ >= batches_.size()) {
+    return false;
+  }
+  std::shared_ptr<arrow::RecordBatch> batch = batches_[batch_idx_];
+  size_t rows = batch->num_rows();
 
-  std::shared_ptr<arrow::RecordBatch> batch;
-  batch = batches[batch_idx_];
-  for (int j = 0; j < batch->num_rows(); j++) {
-      std::stringstream ss;
-      for (int i = 0; i < table->num_columns(); i++) {
-        auto column = table->column(i);
-        auto array = column->chunk(0);
+  if ((size_t) row_idx_ >= rows) {
+    return false;
+  }
 
-        ss << array->GetScalar(j).ValueOrDie()->ToString()
-           << (i == (table->num_columns() - 1) ? "\n" : " ");
-      }
-      line = ss.str();
-    }
+  std::stringstream ss;
+  for (int i = 0; i < table->num_columns(); i++) {
+    auto array = table->column(i)->chunk(batch_idx_);
+    ss << array->GetScalar(row_idx_).ValueOrDie()->ToString()
+       << (i == (table->num_columns() - 1) ? "" : " ");
+  }
 
-
-  while (batch_reader.ReadNext(&batch).ok() && batch != nullptr) {
-    for (int j = 0; j < batch->num_rows(); j++) {
-      std::stringstream ss;
-      for (int i = 0; i < table->num_columns(); i++) {
-        auto column = table->column(i);
-        auto array = column->chunk(0);
-
-        ss << array->GetScalar(j).ValueOrDie()->ToString()
-           << (i == (table->num_columns() - 1) ? "\n" : " ");
-      }
-      line = ss.str();
-    }
+  line = ss.str();
+  if ((size_t) row_idx_ + 1 >= rows) {
+    row_idx_ = 0;
+    batch_idx_++;
+  } else {
+    row_idx_++;
   }
   return true;
 }
 
 bool ArrowIOAdaptor::ReadArchive(OutArchive& archive) {
-  if (!using_std_getline_ && file_) {
+  if (ifp_) {
     size_t length;
-    bool status = fread(&length, sizeof(size_t), 1, file_);
-    if (!status) {
-      return false;
-    }
+    RETURN_ON_ARROW_ERROR(
+        ifp_->Read(sizeof(size_t), reinterpret_cast<void*>(&length)));
     archive.Allocate(length);
-    status = fread(archive.GetBuffer(), 1, length, file_);
-    return status;
+    RETURN_ON_ARROW_ERROR(
+        ifp_->Read(length, reinterpret_cast<void*>(archive.GetBuffer())));
+    return true;
   } else {
     VLOG(1) << "invalid operation.";
     return false;
@@ -292,17 +305,11 @@ bool ArrowIOAdaptor::ReadArchive(OutArchive& archive) {
 }
 
 bool ArrowIOAdaptor::WriteArchive(InArchive& archive) {
-  if (!using_std_getline_ && file_) {
+  if (ofp_) {
     size_t length = archive.GetSize();
-    bool status = fwrite(&length, sizeof(size_t), 1, file_);
-    if (!status) {
-      return false;
-    }
-    status = fwrite(archive.GetBuffer(), 1, length, file_);
-    if (!status) {
-      return false;
-    }
-    fflush(file_);
+    RETURN_ON_ARROW_ERROR(ofp_->Write((void*) &length, sizeof(size_t)));
+    RETURN_ON_ARROW_ERROR(ofp_->Write(archive.GetBuffer(), length));
+    RETURN_ON_ARROW_ERROR(ofp_->Flush());
     return true;
   } else {
     VLOG(1) << "invalid operation.";
@@ -326,7 +333,14 @@ bool ArrowIOAdaptor::Read(void* buffer, size_t size) {
   }
 }
 
-bool ArrowIOAdaptor::Write(void* buffer, size_t size) { return false; }
+bool ArrowIOAdaptor::Write(void* buffer, size_t size) {
+  if (ofp_) {
+    auto status = ofp_->Write(buffer, size);
+    return status.ok();
+  } else {
+    return false;
+  }
+}
 
 void ArrowIOAdaptor::Close() {
   if (ifp_) {
@@ -341,7 +355,23 @@ void ArrowIOAdaptor::Close() {
 }
 
 void ArrowIOAdaptor::MakeDirectory(const std::string& path) {
-  auto s = fs_->CreateDir(path, true);
+  std::string dir = path;
+  int len = dir.size();
+  if (dir[len - 1] != '/') {
+    dir[len] = '/';
+    len++;
+  }
+  std::string temp;
+  for (int i = 1; i < len; i++) {
+    if (dir[i] == '/') {
+      temp = dir.substr(0, i);
+      if (access(temp.c_str(), 0) != 0) {
+        if (mkdir(temp.c_str(), 0777) != 0) {
+          VLOG(1) << "failed operaiton.";
+        }
+      }
+    }
+  }
 }
 
 bool ArrowIOAdaptor::IsExist() {

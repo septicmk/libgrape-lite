@@ -259,7 +259,7 @@ class GlobalVertexMap : public VertexMapBase<OID_T, VID_T, PARTITIONER_T> {
 
     auto io_adaptor =
         std::unique_ptr<IOADAPTOR_T>(new IOADAPTOR_T(std::string(fbuf)));
-    io_adaptor->Open();
+    io_adaptor->Open("rb");
 
     base_t::deserialize(io_adaptor);
 
