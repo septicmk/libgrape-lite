@@ -43,7 +43,7 @@ function RunApp() {
   NP=$1; shift
   APP=$1; shift
 
-  cmd="mpirun -n ${NP} ./run_app --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e --application ${APP} --out_prefix ./extra_tests_output $@"
+  cmd="mpirun --allow-run-as-root -n ${NP} ./run_app --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e --application ${APP} --out_prefix ./extra_tests_output $@"
   echo ${cmd}
   eval ${cmd}
 }
@@ -116,7 +116,7 @@ function MutableFragmentTest() {
   NP=$1; shift
   APP=$1; shift
 
-  cmd="mpirun -n ${NP} ./mutable_fragment_tests --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e.mutable_base --delta_efile ${GRAPE_HOME}/dataset/${GRAPH}.e.mutable_delta --application ${APP} --out_prefix ./extra_tests_output $@"
+  cmd="mpirun --allow-run-as-root -n ${NP} ./mutable_fragment_tests --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e.mutable_base --delta_efile ${GRAPE_HOME}/dataset/${GRAPH}.e.mutable_delta --application ${APP} --out_prefix ./extra_tests_output $@"
   echo ${cmd}
   eval ${cmd}
 }
@@ -166,7 +166,7 @@ function MutableFragmentTests() {
 function VertexMapTest() {
   NP=$1; shift
 
-  cmd="mpirun -n ${NP} ./vertex_map_tests --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e --out_prefix ./extra_tests_output --sssp_source=6 $@"
+  cmd="mpirun --allow-run-as-root -n ${NP} ./vertex_map_tests --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e --out_prefix ./extra_tests_output --sssp_source=6 $@"
 
   echo ${cmd}
   eval ${cmd}
@@ -175,7 +175,7 @@ function VertexMapTest() {
 function VertexMapTestOnMutableFragment() {
   NP=$1; shift
 
-  cmd="mpirun -n ${NP} ./vertex_map_tests --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e.mutable_base --delta_efile ${GRAPE_HOME}/dataset/${GRAPH}.e.mutable_delta --out_prefix ./extra_tests_output --sssp_source=6 $@"
+  cmd="mpirun --allow-run-as-root -n ${NP} ./vertex_map_tests --vfile ${GRAPE_HOME}/dataset/${GRAPH}.v --efile ${GRAPE_HOME}/dataset/${GRAPH}.e.mutable_base --delta_efile ${GRAPE_HOME}/dataset/${GRAPH}.e.mutable_delta --out_prefix ./extra_tests_output --sssp_source=6 $@"
 
   echo ${cmd}
   eval ${cmd}

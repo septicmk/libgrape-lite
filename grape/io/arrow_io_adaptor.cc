@@ -177,7 +177,6 @@ bool ArrowIOAdaptor::preReadPartialTable(bool partial) {
   auto convert_options = arrow::csv::ConvertOptions::Defaults();
   read_options.autogenerate_column_names = true;
   parse_options.delimiter = delimiter_;
-  read_options.use_threads = false;
 
   std::shared_ptr<arrow::csv::TableReader> reader;
 #if defined(ARROW_VERSION) && ARROW_VERSION >= 4000000

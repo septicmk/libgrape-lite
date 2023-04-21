@@ -17,7 +17,9 @@ limitations under the License.
 #define GRAPE_FRAGMENT_EV_FRAGMENT_LOADER_H_
 
 #include <mpi.h>
+#include <sys/time.h>
 
+#include <iostream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -72,6 +74,21 @@ class EVFragmentLoader {
                                            const std::string& vfile,
                                            const LoadGraphSpec& spec) {
     std::shared_ptr<fragment_t> fragment(nullptr);
+
+    double timer_start, timer_end;
+    size_t timer_set = 0;
+    auto timerUpdate = [&]() {
+      struct timeval tv;
+      gettimeofday(&tv, NULL);
+      double tmp = tv.tv_sec + tv.tv_usec / 1000000.0;
+      if (++timer_set & 1) {
+        timer_start = tmp;
+      } else {
+        timer_end = tmp;
+      }
+    };
+
+    timerUpdate();
     if (spec.deserialize && (!spec.serialize)) {
       bool deserialized = basic_fragment_loader_.DeserializeFragment(
           fragment, spec.deserialization_prefix);
@@ -81,6 +98,10 @@ class EVFragmentLoader {
         flag = 1;
       }
       MPI_Allreduce(&flag, &sum, 1, MPI_INT, MPI_SUM, comm_spec_.comm());
+      timerUpdate();
+      std::cerr << " - "
+                << "deserialize fragment: " << timer_end - timer_start << " sec"
+                << std::endl;
       if (sum != 0) {
         fragment.reset();
         if (comm_spec_.worker_id() == 0) {
@@ -94,6 +115,7 @@ class EVFragmentLoader {
 
     std::vector<oid_t> id_list;
     std::vector<vdata_t> vdata_list;
+    timerUpdate();
     if (!vfile.empty()) {
       auto io_adaptor = std::unique_ptr<IOADAPTOR_T>(new IOADAPTOR_T(vfile));
       io_adaptor->Open();
@@ -121,7 +143,14 @@ class EVFragmentLoader {
       }
       io_adaptor->Close();
     }
+    timerUpdate();
+    if (comm_spec_.fid() == 0) {
+      std::cerr << " - "
+                << "Load vfile: " << timer_end - timer_start << " sec"
+                << std::endl;
+    }
 
+    timerUpdate();
     partitioner_t partitioner(comm_spec_.fnum(), id_list);
 
     basic_fragment_loader_.SetPartitioner(std::move(partitioner));
@@ -136,7 +165,14 @@ class EVFragmentLoader {
         basic_fragment_loader_.AddVertex(id_list[i], vdata_list[i]);
       }
     }
+    timerUpdate();
+    if (comm_spec_.fid() == 0) {
+      std::cerr << " - "
+                << "build IdIndexer: " << timer_end - timer_start << " sec"
+                << std::endl;
+    }
 
+    timerUpdate();
     {
       auto io_adaptor =
           std::unique_ptr<IOADAPTOR_T>(new IOADAPTOR_T(std::string(efile)));
@@ -169,12 +205,26 @@ class EVFragmentLoader {
       }
       io_adaptor->Close();
     }
+    timerUpdate();
+    if (comm_spec_.fid() == 0) {
+      std::cerr << " - "
+                << "Load efile: " << timer_end - timer_start << " sec"
+                << std::endl;
+    }
 
     VLOG(1) << "[worker-" << comm_spec_.worker_id()
             << "] finished add vertices and edges";
 
+    timerUpdate();
     basic_fragment_loader_.ConstructFragment(fragment, spec.directed);
+    timerUpdate();
+    if (comm_spec_.fid() == 0) {
+      std::cerr << " - "
+                << "construct fragment: " << timer_end - timer_start << " sec"
+                << std::endl;
+    }
 
+    timerUpdate();
     if (spec.serialize) {
       bool serialized = basic_fragment_loader_.SerializeFragment(
           fragment, spec.serialization_prefix);
@@ -182,6 +232,12 @@ class EVFragmentLoader {
         VLOG(2) << "[worker-" << comm_spec_.worker_id()
                 << "] Serialization failed.";
       }
+    }
+    timerUpdate();
+    if (comm_spec_.fid() == 0) {
+      std::cerr << " - "
+                << "serialize fragment: " << timer_end - timer_start << " sec"
+                << std::endl;
     }
 
     return fragment;

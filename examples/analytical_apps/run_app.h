@@ -145,7 +145,7 @@ void CreateAndQuery(const CommSpec& comm_spec, const std::string& out_prefix,
     using FRAG_T =
         ImmutableEdgecutFragment<OID_T, VID_T, VDATA_T, EDATA_T, load_strategy>;
     std::shared_ptr<FRAG_T> fragment =
-        LoadGraph<FRAG_T>(FLAGS_efile, FLAGS_vfile, comm_spec, graph_spec);
+        LoadGraph<FRAG_T, ArrowIOAdaptor>(FLAGS_efile, FLAGS_vfile, comm_spec, graph_spec);
     using AppType = APP_T<FRAG_T>;
     auto app = std::make_shared<AppType>();
     DoQuery<FRAG_T, AppType, Args...>(fragment, app, comm_spec, spec,
