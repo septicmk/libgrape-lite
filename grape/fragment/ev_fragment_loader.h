@@ -99,9 +99,11 @@ class EVFragmentLoader {
       }
       MPI_Allreduce(&flag, &sum, 1, MPI_INT, MPI_SUM, comm_spec_.comm());
       timerUpdate();
-      std::cerr << " - "
-                << "deserialize fragment: " << timer_end - timer_start << " sec"
-                << std::endl;
+      if (comm_spec_.fid() == 0) {
+        std::cerr << " - "
+                  << "deserialize fragment: " << timer_end - timer_start
+                  << " sec" << std::endl;
+      }
       if (sum != 0) {
         fragment.reset();
         if (comm_spec_.worker_id() == 0) {
