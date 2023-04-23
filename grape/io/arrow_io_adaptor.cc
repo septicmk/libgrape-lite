@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <glog/logging.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <cstdlib>
 #include <iostream>
@@ -37,7 +38,12 @@ ArrowIOAdaptor::ArrowIOAdaptor(std::string location)
       enable_partial_read_(false),
       total_parts_(0),
       index_(0) {
-  fs_ = std::make_shared<arrow::fs::LocalFileSystem>();
+  auto result = arrow::fs::FileSystemFromUriOrPath(realPath(location_));
+  if (result.ok()) {
+    fs_ = result.ValueOrDie();
+  } else {
+    fs_ = std::make_shared<arrow::fs::LocalFileSystem>();
+  }
 }
 
 ArrowIOAdaptor::~ArrowIOAdaptor() {

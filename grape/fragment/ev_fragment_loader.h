@@ -113,6 +113,8 @@ class EVFragmentLoader {
       } else {
         return fragment;
       }
+    } else {
+      timerUpdate();
     }
 
     std::vector<oid_t> id_list;
