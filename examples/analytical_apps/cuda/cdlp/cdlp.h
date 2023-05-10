@@ -97,9 +97,9 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
   LoadBalancing lb;
   VertexArray<label_t, vid_t> labels;
   VertexArray<thrust::pair<label_t, bool>, vid_t> new_label;
-  pinned_vector<int> h_row_offset;
+  pinned_vector<size_t> h_row_offset;
   pinned_vector<label_t> h_col_indices;
-  thrust::device_vector<int> d_row_offset;
+  thrust::device_vector<size_t> d_row_offset;
   thrust::device_vector<label_t> d_col_indices;
 
 #ifdef PROFILING
@@ -119,6 +119,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
   using edata_t = typename fragment_t::edata_t;
   using vertex_t = typename dev_fragment_t::vertex_t;
   using nbr_t = typename dev_fragment_t::nbr_t;
+  using size_type = size_t;
 
   static constexpr grape::MessageStrategy message_strategy =
       grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
@@ -169,7 +170,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
         stream, d_frag, ws_iv,
         [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
           vertex_t v = nbr.get_neighbor();
-          uint64_t eid = d_frag.GetOutgoingEdgeIndex(nbr);
+          size_t eid = d_frag.GetOutgoingEdgeIndex(nbr);
 
           p_d_col_indices[eid] = d_labels[v];
         },
@@ -276,7 +277,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     auto d_labels = ctx.labels.DeviceObject();
     WorkSourceRange<vertex_t> ws_iv(*iv.begin(), iv.size());
     WorkSourceRange<vertex_t> ws_ov(*ov.begin(), ov.size());
-    thrust::device_vector<int> out_degree(iv.size());
+    thrust::device_vector<size_t> out_degree(iv.size());
     auto* d_out_degree = thrust::raw_pointer_cast(out_degree.data());
 
     ++ctx.step;
@@ -308,7 +309,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     CHECK_CUDA(
         cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.h_row_offset.data()),
                         thrust::raw_pointer_cast(ctx.d_row_offset.data()),
-                        sizeof(int) * ctx.h_row_offset.size(),
+                        sizeof(size_t) * ctx.h_row_offset.size(),
                         cudaMemcpyDeviceToHost, stream.cuda_stream()));
 
     PropagateLabel(frag, ctx, messages);
