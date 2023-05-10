@@ -62,8 +62,8 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
       n_vertices += 1;
     }
 
-    messages.InitBuffer(2 * n_edges * (sizeof(nbr_t) + sizeof(vid_t)),
-                        2 * n_edges * (sizeof(nbr_t) + sizeof(vid_t)));
+    messages.InitBuffer(2 * n_edges * (sizeof(nbr_t) + sizeof(size_t)),
+                        2 * n_edges * (sizeof(nbr_t) + sizeof(size_t)));
   }
 
   void Output(std::ostream& os) override {
@@ -203,9 +203,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
 
-      CHECK_CUDA(cudaMemcpyAsync(d_filling_offset.data(), d_row_offset,
-                                 sizeof(size_t) * size, cudaMemcpyDeviceToDevice,
-                                 stream.cuda_stream()));
+      CHECK_CUDA(cudaMemcpyAsync(
+          d_filling_offset.data(), d_row_offset, sizeof(size_t) * size,
+          cudaMemcpyDeviceToDevice, stream.cuda_stream()));
 
       auto n_filtered_edges = ctx.row_offset[size];
 
@@ -243,8 +243,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
-            for (auto begin = d_row_offset[idx]; begin < d_row_offset[idx + 1];
-                 begin++) {
+            size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]) / 2;
+            for (auto begin = d_row_offset[idx];
+                 begin < d_row_offset[idx] + legnth; begin++) {
               size_t v_gid = d_msg_col_indices[begin];
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
@@ -253,8 +254,38 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
       stream.Sync();
       messages.ForceContinue();
-    } else if (ctx.stage == 2) {
+    } else if (ctx.stage = 2) {
       ctx.stage = 3;
+      auto d_filling_offset = ctx.filling_offset.DeviceObject();
+      auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
+      auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
+      messages.template ParallelProcess<dev_fragment_t, vid_t>(
+          dev_frag, [=] __device__(vertex_t u, vid_t v_gid) mutable {
+            vertex_t v;
+            assert(dev_frag.IsOuterVertex(u));
+            if (dev_frag.Gid2Vertex(v_gid, v)) {
+              auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
+              assert(pos + 1 <= d_row_offset[u.GetValue() + 1]);
+              d_col_indices[pos] = v.GetValue();
+            }
+          });
+
+      WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
+      ForEachWithIndex(
+          stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
+            // TODO(mengke): replace it with ForEachOutgoingEdge
+            size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]) / 2;
+            for (auto begin = d_row_offset[idx] + length ;
+                 begin < d_row_offset[idx + 1]; begin++) {
+              size_t v_gid = d_msg_col_indices[begin];
+
+              d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
+            }
+          });
+      stream.Sync();
+      messages.ForceContinue();
+    } else if (ctx.stage == 3) {
+      ctx.stage = 4;
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
@@ -341,7 +372,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                     auto max_edge_begin =
                         degree_u < degree_v ? edge_begin_v : edge_begin_u;
                     ArrayView<size_t> dst_gids(&d_col_indices[max_edge_begin],
-                                              max_degree);
+                                               max_degree);
 
                     for (; min_edge_begin < min_edge_end; min_edge_begin++) {
                       auto dst_gid_from_small = d_col_indices[min_edge_begin];
@@ -397,7 +428,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       }
 
       messages.ForceContinue();
-    } else if (ctx.stage == 3) {
+    } else if (ctx.stage == 4) {
       messages.template ParallelProcess<dev_fragment_t, size_t>(
           dev_frag, [=] __device__(vertex_t v, size_t tri_cnt) mutable {
             dev::atomicAdd64(&d_tricnt[v], tri_cnt);
