@@ -395,22 +395,22 @@ class DeviceFragment {
                             oeoffset_[v.GetValue() + 1]);
   }
 
-  DEV_INLINE uint64_t GetIncomingEdgeIndex(const nbr_t& nbr) const {
-    uint64_t edge_idx = &nbr - ie_.data();
-    assert(edge_idx >= 0 & edge_idx < ienum_);
+  DEV_INLINE size_t GetIncomingEdgeIndex(const nbr_t& nbr) const {
+    size_t edge_idx = &nbr - ie_.data();
+    assert(edge_idx < ienum_);
     return edge_idx;
   }
 
-  DEV_INLINE uint64_t GetOutgoingEdgeIndex(const nbr_t& nbr) const {
-    uint64_t edge_idx = &nbr - oe_.data();
-    assert(edge_idx >= 0 & edge_idx < oenum_);
+  DEV_INLINE size_t GetOutgoingEdgeIndex(const nbr_t& nbr) const {
+    size_t edge_idx = &nbr - oe_.data();
+    assert(edge_idx < oenum_);
     return edge_idx;
   }
 
  private:
   DeviceVertexMap<OID_T, VID_T> vm_;
-  VID_T ivnum_{}, ovnum_{}, tvnum_{};
-  VID_T ienum_{}, oenum_{};
+  size_t vnum_{}, ovnum_{}, tvnum_{};
+  size_t ienum_{}, oenum_{};
 
   fid_t fid_{};
 
