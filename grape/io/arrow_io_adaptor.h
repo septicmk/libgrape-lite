@@ -87,8 +87,6 @@ class ArrowIOAdaptor : public IOAdaptorBase {
  public:
   explicit ArrowIOAdaptor(std::string location);
   
-  explicit ArrowIOAdaptor(std::string location, std::string fspath);
-
   ~ArrowIOAdaptor() override;
 
   void Open() override;

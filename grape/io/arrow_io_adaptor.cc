@@ -38,22 +38,19 @@ ArrowIOAdaptor::ArrowIOAdaptor(std::string location)
       enable_partial_read_(false),
       total_parts_(0),
       index_(0) {
-    is_s3_=false;
-    fs_ = std::make_shared<arrow::fs::LocalFileSystem>();
-}
+  std::string delimiter = "|";
+  size_t pos = location.find(delimiter);
 
-ArrowIOAdaptor::ArrowIOAdaptor(std::string location, std::string fspath)
-    : location_(std::move(location)),
-      fspath_(std::move(fspath)),
-      enable_partial_read_(false),
-      total_parts_(0),
-      index_(0) {
+  std::string left = location.substr(0, pos);
+  std::string right = location.substr(pos + 1);
+  fspath_ = left;
+  location_ = right;
   auto result = arrow::fs::FileSystemFromUriOrPath(fspath_);
   if (result.ok()) {
-    is_s3_=true;
+    is_s3_ = true;
     fs_ = result.ValueOrDie();
   } else {
-    is_s3_=false;
+    is_s3_ = false;
     fs_ = std::make_shared<arrow::fs::LocalFileSystem>();
   }
 }
@@ -108,7 +105,7 @@ bool ArrowIOAdaptor::seek(const int64_t offset, const FileLocation seek_from) {
 void ArrowIOAdaptor::Open() { return this->Open("r"); }
 
 void ArrowIOAdaptor::Open(const char* mode) {
-  std::string tmp_location = (is_s3_? location_ : realPath(location_));
+  std::string tmp_location = (is_s3_ ? location_ : realPath(location_));
   if (strchr(mode, 'w') != NULL || strchr(mode, 'a') != NULL) {
     int t = location_.find_last_of('/');
 
@@ -120,16 +117,13 @@ void ArrowIOAdaptor::Open(const char* mode) {
     }
 
     if (strchr(mode, 'w') != NULL) {
-      DISCARD_ARROW_ERROR_AND_ASSIGN(
-          ofp_, fs_->OpenOutputStream(tmp_location));
+      DISCARD_ARROW_ERROR_AND_ASSIGN(ofp_, fs_->OpenOutputStream(tmp_location));
     } else {
-      DISCARD_ARROW_ERROR_AND_ASSIGN(
-          ofp_, fs_->OpenAppendStream(tmp_location));
+      DISCARD_ARROW_ERROR_AND_ASSIGN(ofp_, fs_->OpenAppendStream(tmp_location));
     }
     return;
   } else {
-    DISCARD_ARROW_ERROR_AND_ASSIGN(ifp_,
-                                   fs_->OpenInputFile(tmp_location));
+    DISCARD_ARROW_ERROR_AND_ASSIGN(ifp_, fs_->OpenInputFile(tmp_location));
 
     if (!strchr(mode, 'b')) {
       // check the partial read flag
