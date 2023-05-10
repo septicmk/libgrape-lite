@@ -89,7 +89,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
   VertexArray<vid_t, vid_t> valid_out_degree;
   VertexArray<vid_t, vid_t> global_degree;
   VertexArray<vid_t, vid_t> filling_offset;
-  VertexArray<int, vid_t> tricnt;
+  VertexArray<size_t, vid_t> tricnt;
   thrust::device_vector<vid_t> row_offset;
   thrust::device_vector<vid_t> col_indices;
   thrust::device_vector<vid_t> col_sorted_indices;
@@ -181,8 +181,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       messages.ForceContinue();
     } else if (ctx.stage == 1) {
       ctx.stage = 2;
-      messages.template ParallelProcess<dev_fragment_t, int>(
-          dev_frag, [=] __device__(vertex_t v, int degree) mutable {
+      messages.template ParallelProcess<dev_fragment_t, size_t>(
+          dev_frag, [=] __device__(vertex_t v, size_t degree) mutable {
             d_valid_out_degree[v] = degree;
           });
 
@@ -273,10 +273,10 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       // Sort destinations with segmented sort
       {
         WorkSourceRange<vertex_t> ws_in(*vertices.begin(), vertices.size());
-        int n_vertices = vertices.size();
-        int n_edges = ctx.col_sorted_indices.size();
-        int num_items = n_edges;
-        int num_segments = n_vertices;
+        size_t n_vertices = vertices.size();
+        size_t n_edges = ctx.col_sorted_indices.size();
+        size_t num_items = n_edges;
+        size_t num_segments = n_vertices;
         auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
         auto* d_keys_in = thrust::raw_pointer_cast(ctx.col_indices.data());
@@ -315,7 +315,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         // Calculate intersection
         ForEachWithIndex(
             stream, ws_in, [=] __device__(size_t idx, vertex_t u) mutable {
-              int triangle_count = 0;
+              size_t triangle_count = 0;
 
               for (auto eid = d_row_offset[idx]; eid < d_filling_offset[idx];
                    eid++) {
@@ -398,8 +398,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
       messages.ForceContinue();
     } else if (ctx.stage == 3) {
-      messages.template ParallelProcess<dev_fragment_t, int>(
-          dev_frag, [=] __device__(vertex_t v, int tri_cnt) mutable {
+      messages.template ParallelProcess<dev_fragment_t, size_t>(
+          dev_frag, [=] __device__(vertex_t v, size_t tri_cnt) mutable {
             atomicAdd(&d_tricnt[v], tri_cnt);
           });
     }
