@@ -259,6 +259,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
+      auto* d_msg_col_indices =
+          thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
       messages.template ParallelProcess<dev_fragment_t, vid_t>(
           dev_frag, [=] __device__(vertex_t u, vid_t v_gid) mutable {
             vertex_t v;
