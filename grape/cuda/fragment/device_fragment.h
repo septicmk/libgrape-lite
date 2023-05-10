@@ -409,7 +409,7 @@ class DeviceFragment {
 
  private:
   DeviceVertexMap<OID_T, VID_T> vm_;
-  size_t vnum_{}, ovnum_{}, tvnum_{};
+  size_t ivnum_{}, ovnum_{}, tvnum_{};
   size_t ienum_{}, oenum_{};
 
   fid_t fid_{};
