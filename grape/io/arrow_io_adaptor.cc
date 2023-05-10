@@ -39,10 +39,10 @@ ArrowIOAdaptor::ArrowIOAdaptor(std::string location)
       total_parts_(0),
       index_(0) {
   std::string delimiter = "#";
-  size_t pos = location.find(delimiter);
+  size_t pos = location_.find(delimiter);
 
-  std::string left = location.substr(0, pos);
-  std::string right = location.substr(pos + 1);
+  std::string left = location_.substr(0, pos);
+  std::string right = location_.substr(pos + 1);
   fspath_ = left;
   location_ = right;
   auto result = arrow::fs::FileSystemFromUriOrPath(fspath_);
