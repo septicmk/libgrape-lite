@@ -131,7 +131,7 @@ void CreateAndQuery(const grape::CommSpec& comm_spec, const std::string& efile,
         << "Only found " << dev_count << " GPUs, but " << comm_spec.local_num()
         << " processes are launched";
     CHECK_CUDA(cudaSetDevice(dev_id));
-    fragment = LoadGraph<FRAG_T>(efile, vfile, comm_spec, graph_spec);
+    fragment = LoadGraph<FRAG_T, ArrowIOAdaptor>(efile, vfile, comm_spec, graph_spec);
 
     auto app = std::make_shared<APP_T<FRAG_T>>();
     DoQuery<FRAG_T, APP_T<FRAG_T>, Args...>(fragment, app, comm_spec, dev_id,
@@ -150,7 +150,7 @@ void CreateAndQuery(const grape::CommSpec& comm_spec, const std::string& efile,
         << "Only found " << dev_count << " GPUs, but " << comm_spec.local_num()
         << " processes are launched";
     CHECK_CUDA(cudaSetDevice(dev_id));
-    fragment = LoadGraph<FRAG_T>(efile, vfile, comm_spec, graph_spec);
+    fragment = LoadGraph<FRAG_T, ArrowIOAdaptor>(efile, vfile, comm_spec, graph_spec);
 
     auto app = std::make_shared<APP_T<FRAG_T>>();
     DoQuery<FRAG_T, APP_T<FRAG_T>, Args...>(fragment, app, comm_spec, dev_id,
