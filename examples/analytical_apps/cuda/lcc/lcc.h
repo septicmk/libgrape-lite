@@ -170,7 +170,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
-              dev::atomicAdd(&d_valid_out_degree[u], 1);
+              dev::atomicAdd64(&d_valid_out_degree[u], 1);
             }
           },
           ctx.lb);
@@ -233,7 +233,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
-              auto pos = dev::atomicAdd(&d_filling_offset[u], 1);
+              auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
               d_col_indices[pos] = v.GetValue();
               d_msg_col_indices[pos] = v_gid;
             }
@@ -264,7 +264,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             vertex_t v;
             assert(dev_frag.IsOuterVertex(u));
             if (dev_frag.Gid2Vertex(v_gid, v)) {
-              auto pos = dev::atomicAdd(&d_filling_offset[u], 1);
+              auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
               assert(pos + 1 <= d_row_offset[u.GetValue() + 1]);
               d_col_indices[pos] = v.GetValue();
             }
@@ -352,8 +352,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                         vertex_t comm_vertex(d_col_indices[min_edge_begin]);
 
                         triangle_count += 1;
-                        dev::atomicAdd(&d_tricnt[comm_vertex], 1);
-                        dev::atomicAdd(&d_tricnt[v], 1);
+                        dev::atomicAdd64(&d_tricnt[comm_vertex], 1);
+                        dev::atomicAdd64(&d_tricnt[v], 1);
                       }
                     }
                   } else {
@@ -373,8 +373,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                         vertex_t comm_vertex(d_col_indices[edge_begin_u]);
 
                         triangle_count += 1;
-                        dev::atomicAdd(&d_tricnt[comm_vertex], 1);
-                        dev::atomicAdd(&d_tricnt[v], 1);
+                        dev::atomicAdd64(&d_tricnt[comm_vertex], 1);
+                        dev::atomicAdd64(&d_tricnt[v], 1);
                         edge_begin_u++;
                         edge_begin_v++;
                       }
@@ -383,7 +383,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                 }
               }
 
-              dev::atomicAdd(&d_tricnt[u], triangle_count);
+              dev::atomicAdd64(&d_tricnt[u], triangle_count);
             });
       }
 
@@ -400,7 +400,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     } else if (ctx.stage == 3) {
       messages.template ParallelProcess<dev_fragment_t, size_t>(
           dev_frag, [=] __device__(vertex_t v, size_t tri_cnt) mutable {
-            dev::atomicAdd(&d_tricnt[v], tri_cnt);
+            dev::atomicAdd64(&d_tricnt[v], tri_cnt);
           });
     }
   }

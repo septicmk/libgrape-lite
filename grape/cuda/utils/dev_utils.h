@@ -57,7 +57,7 @@ DEV_INLINE float atomicMinFloat(float* addr, float value) {
   return old;
 }
 
-DEV_INLINE size_t atomicAdd(size_t *address, size_t val)
+DEV_INLINE size_t atomicAdd64(size_t *address, size_t val)
 {
     unsigned long long int *address_as_ull = 
                           (unsigned long long int *)address;
