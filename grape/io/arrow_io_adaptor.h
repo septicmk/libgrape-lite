@@ -86,6 +86,8 @@ enum FileLocation {
 class ArrowIOAdaptor : public IOAdaptorBase {
  public:
   explicit ArrowIOAdaptor(std::string location);
+  
+  explicit ArrowIOAdaptor(std::string location, std::string fspath);
 
   ~ArrowIOAdaptor() override;
 
@@ -121,9 +123,11 @@ class ArrowIOAdaptor : public IOAdaptorBase {
   std::string realPath(std::string const& path);
 
   std::string location_;
+  std::string fspath_;
   bool enable_partial_read_;
   int total_parts_;
   int index_;
+  bool is_s3_;
 
   char buff[LINESIZE];
   std::vector<int64_t> partial_read_offset_;
