@@ -170,7 +170,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
-              atomicAdd(&d_valid_out_degree[u], 1);
+              atomicAdd(&d_valid_out_degree[u], 1ull);
             }
           },
           ctx.lb);
@@ -233,7 +233,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
-              auto pos = atomicAdd(&d_filling_offset[u], 1);
+              auto pos = atomicAdd(&d_filling_offset[u], 1ull);
               d_col_indices[pos] = v.GetValue();
               d_msg_col_indices[pos] = v_gid;
             }
@@ -264,7 +264,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             vertex_t v;
             assert(dev_frag.IsOuterVertex(u));
             if (dev_frag.Gid2Vertex(v_gid, v)) {
-              auto pos = atomicAdd(&d_filling_offset[u], 1);
+              auto pos = atomicAdd(&d_filling_offset[u], 1ull);
               assert(pos + 1 <= d_row_offset[u.GetValue() + 1]);
               d_col_indices[pos] = v.GetValue();
             }
@@ -352,8 +352,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                         vertex_t comm_vertex(d_col_indices[min_edge_begin]);
 
                         triangle_count += 1;
-                        atomicAdd(&d_tricnt[comm_vertex], 1);
-                        atomicAdd(&d_tricnt[v], 1);
+                        atomicAdd(&d_tricnt[comm_vertex], 1ull);
+                        atomicAdd(&d_tricnt[v], 1ull);
                       }
                     }
                   } else {
