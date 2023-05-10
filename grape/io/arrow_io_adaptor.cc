@@ -43,6 +43,8 @@ ArrowIOAdaptor::ArrowIOAdaptor(std::string location)
 
   std::string left = location.substr(0, pos);
   std::string right = location.substr(pos + 1);
+  std::cout << "left = " << left << std::endl;
+  std::cout << "right = " << right << std::endl;
   fspath_ = left;
   location_ = right;
   auto result = arrow::fs::FileSystemFromUriOrPath(fspath_);
