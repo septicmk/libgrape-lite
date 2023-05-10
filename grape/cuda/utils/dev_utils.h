@@ -57,6 +57,21 @@ DEV_INLINE float atomicMinFloat(float* addr, float value) {
   return old;
 }
 
+DEV_INLINE size_t atomicAdd(size_t *address, size_t val)
+{
+    unsigned long long int *address_as_ull = 
+                          (unsigned long long int *)address;
+    unsigned long long int old = *address_as_ull, assumed;
+
+    do {
+        assumed = old;
+        old = atomicCAS(address_as_ull, assumed,
+                        static_cast<unsigned long long int>(val + assumed));
+    } while (assumed != old);
+
+    return old;
+}
+
 template <typename T>
 DEV_INLINE bool BinarySearch(const ArrayView<T>& array, const T& target) {
   size_t l = 0;
