@@ -254,7 +254,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
       stream.Sync();
       messages.ForceContinue();
-    } else if (ctx.stage = 2) {
+    } else if (ctx.stage == 2) {
       ctx.stage = 3;
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
