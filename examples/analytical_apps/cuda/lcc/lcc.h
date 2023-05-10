@@ -86,13 +86,13 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
   }
 
   LoadBalancing lb{};
-  VertexArray<vid_t, vid_t> valid_out_degree;
-  VertexArray<vid_t, vid_t> global_degree;
-  VertexArray<vid_t, vid_t> filling_offset;
-  VertexArray<unsigned long long, vid_t> tricnt;
-  thrust::device_vector<vid_t> row_offset;
-  thrust::device_vector<vid_t> col_indices;
-  thrust::device_vector<vid_t> col_sorted_indices;
+  VertexArray<vid_t, unsigned long long> valid_out_degree;
+  VertexArray<vid_t, unsigned long long> global_degree;
+  VertexArray<vid_t, unsigned long long> filling_offset;
+  VertexArray<vid_t, unsigned long long> tricnt;
+  thrust::device_vector<unsigned long long> row_offset;
+  thrust::device_vector<unsigned long long> col_indices;
+  thrust::device_vector<unsigned long long> col_sorted_indices;
   int stage{};
 #ifdef PROFILING
   double get_msg_time{};
@@ -182,7 +182,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     } else if (ctx.stage == 1) {
       ctx.stage = 2;
       messages.template ParallelProcess<dev_fragment_t, unsigned long long>(
-          dev_frag, [=] __device__(vertex_t v, unsigned long long degree) mutable {
+          dev_frag,
+          [=] __device__(vertex_t v, unsigned long long degree) mutable {
             d_valid_out_degree[v] = degree;
           });
 
@@ -241,7 +242,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           ctx.lb);
 
       ForEachWithIndex(
-          stream, ws_in, [=] __device__(unsigned long long idx, vertex_t u) mutable {
+          stream, ws_in,
+          [=] __device__(unsigned long long idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             for (auto begin = d_row_offset[idx]; begin < d_row_offset[idx + 1];
                  begin++) {
@@ -314,7 +316,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
         // Calculate intersection
         ForEachWithIndex(
-            stream, ws_in, [=] __device__(unsigned long long idx, vertex_t u) mutable {
+            stream, ws_in,
+            [=] __device__(unsigned long long idx, vertex_t u) mutable {
               unsigned long long triangle_count = 0;
 
               for (auto eid = d_row_offset[idx]; eid < d_filling_offset[idx];
@@ -399,7 +402,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       messages.ForceContinue();
     } else if (ctx.stage == 3) {
       messages.template ParallelProcess<dev_fragment_t, unsigned long long>(
-          dev_frag, [=] __device__(vertex_t v, unsigned long long tri_cnt) mutable {
+          dev_frag,
+          [=] __device__(vertex_t v, unsigned long long tri_cnt) mutable {
             atomicAdd(&d_tricnt[v], tri_cnt);
           });
     }
