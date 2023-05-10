@@ -128,7 +128,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                                     inner_vertices.size());
 
     ForEach(messages.stream(), ws_in, [=] __device__(vertex_t v) mutable {
-      vid_t degree = d_frag.GetLocalOutDegree(v);
+      size_t degree = d_frag.GetLocalOutDegree(v);
 
       d_global_degree[v] = degree;
       d_mm.template SendMsgThroughOEdges(d_frag, v, degree);
@@ -152,8 +152,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     if (ctx.stage == 0) {
       ctx.stage = 1;
       // Get degree of outer vertices
-      messages.template ParallelProcess<dev_fragment_t, vid_t>(
-          dev_frag, [=] __device__(vertex_t v, vid_t degree) mutable {
+      messages.template ParallelProcess<dev_fragment_t, size_t>(
+          dev_frag, [=] __device__(vertex_t v, size_t degree) mutable {
             d_global_degree[v] = degree;
           });
 
@@ -163,8 +163,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, dev_frag, ws_in,
           [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
             vertex_t v = nbr.get_neighbor();
-            vid_t u_degree = d_global_degree[u];
-            vid_t v_degree = d_global_degree[v];
+            size_t u_degree = d_global_degree[u];
+            size_t v_degree = d_global_degree[v];
             vid_t u_gid = dev_frag.GetInnerVertexGid(u);
             vid_t v_gid = dev_frag.Vertex2Gid(v);
 
@@ -189,7 +189,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       void* d_temp_storage = nullptr;
       size_t temp_storage_bytes = 0;
       // d_row_offset[0] should be 0
-      vid_t* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
+      size_t* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto size = vertices.size();
 
       CHECK_CUDA(cub::DeviceScan::InclusiveSum(
@@ -204,7 +204,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
 
       CHECK_CUDA(cudaMemcpyAsync(d_filling_offset.data(), d_row_offset,
-                                 sizeof(vid_t) * size, cudaMemcpyDeviceToDevice,
+                                 sizeof(size_t) * size, cudaMemcpyDeviceToDevice,
                                  stream.cuda_stream()));
 
       auto n_filtered_edges = ctx.row_offset[size];
@@ -340,7 +340,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                     auto min_edge_end = min_edge_begin + min_degree;
                     auto max_edge_begin =
                         degree_u < degree_v ? edge_begin_v : edge_begin_u;
-                    ArrayView<vid_t> dst_gids(&d_col_indices[max_edge_begin],
+                    ArrayView<size_t> dst_gids(&d_col_indices[max_edge_begin],
                                               max_degree);
 
                     for (; min_edge_begin < min_edge_end; min_edge_begin++) {
