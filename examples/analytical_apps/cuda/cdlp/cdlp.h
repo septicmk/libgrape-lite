@@ -169,7 +169,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
         stream, d_frag, ws_iv,
         [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
           vertex_t v = nbr.get_neighbor();
-          size_t eid = d_frag.GetOutgoingEdgeIndex(nbr);
+          uint64_t eid = d_frag.GetOutgoingEdgeIndex(nbr);
 
           p_d_col_indices[eid] = d_labels[v];
         },
@@ -215,7 +215,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     auto* local_labels = thrust::raw_pointer_cast(ctx.d_col_indices.data());
 
     WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
-    int n_vertices = iv.size();
+    uint32_t n_vertices = iv.size();
 
     auto d_new_label = ctx.new_label.DeviceObject();
 
@@ -227,9 +227,9 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
           if (size > 0) {
             label_t new_label;
             label_t curr_label = local_labels[begin];
-            int curr_count = 1;
+            int64_t curr_count = 1;
             label_t best_label = 0;
-            int best_count = 0;
+            int64_t best_count = 0;
 
             for (auto eid = begin + 1; eid < end; eid++) {
               if (local_labels[eid] != local_labels[eid - 1]) {

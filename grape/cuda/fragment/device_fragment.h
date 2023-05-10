@@ -395,14 +395,14 @@ class DeviceFragment {
                             oeoffset_[v.GetValue() + 1]);
   }
 
-  DEV_INLINE size_t GetIncomingEdgeIndex(const nbr_t& nbr) const {
-    int edge_idx = &nbr - ie_.data();
+  DEV_INLINE uint64_t GetIncomingEdgeIndex(const nbr_t& nbr) const {
+    uint64_t edge_idx = &nbr - ie_.data();
     assert(edge_idx >= 0 & edge_idx < ienum_);
     return edge_idx;
   }
 
-  DEV_INLINE size_t GetOutgoingEdgeIndex(const nbr_t& nbr) const {
-    int edge_idx = &nbr - oe_.data();
+  DEV_INLINE uint64_t GetOutgoingEdgeIndex(const nbr_t& nbr) const {
+    uint64_t edge_idx = &nbr - oe_.data();
     assert(edge_idx >= 0 & edge_idx < oenum_);
     return edge_idx;
   }
