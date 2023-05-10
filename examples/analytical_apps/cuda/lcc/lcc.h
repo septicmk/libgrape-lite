@@ -241,7 +241,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           ctx.lb);
 
       ForEachWithIndex(
-          stream, ws_in, [=] __device__(size_t idx, vertex_t u) mutable {
+          stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             for (auto begin = d_row_offset[idx]; begin < d_row_offset[idx + 1];
                  begin++) {
@@ -314,7 +314,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
         // Calculate intersection
         ForEachWithIndex(
-            stream, ws_in, [=] __device__(size_t idx, vertex_t u) mutable {
+            stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
               size_t triangle_count = 0;
 
               for (auto eid = d_row_offset[idx]; eid < d_filling_offset[idx];
@@ -398,8 +398,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
       messages.ForceContinue();
     } else if (ctx.stage == 3) {
-      messages.template ParallelProcess<dev_fragment_t, int>(
-          dev_frag, [=] __device__(vertex_t v, int tri_cnt) mutable {
+      messages.template ParallelProcess<dev_fragment_t, size_t>(
+          dev_frag, [=] __device__(vertex_t v, size_t tri_cnt) mutable {
             dev::atomicAdd(&d_tricnt[v], tri_cnt);
           });
     }
