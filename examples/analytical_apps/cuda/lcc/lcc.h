@@ -245,7 +245,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]) / 2;
             for (auto begin = d_row_offset[idx];
-                 begin < d_row_offset[idx] + legnth; begin++) {
+                 begin < d_row_offset[idx] + length; begin++) {
               size_t v_gid = d_msg_col_indices[begin];
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
