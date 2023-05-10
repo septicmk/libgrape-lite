@@ -186,7 +186,8 @@ class BasicFragmentLoader {
                            const std::string& deserialization_prefix) {
     auto io_adaptor =
         std::unique_ptr<IOADAPTOR_T>(new IOADAPTOR_T(deserialization_prefix));
-    if (io_adaptor->IsExist()) {
+    //if (io_adaptor->IsExist()) {
+    if(1){
       vm_ptr_->template Deserialize<IOADAPTOR_T>(deserialization_prefix,
                                                  comm_spec_.fid());
       fragment = std::shared_ptr<fragment_t>(new fragment_t(vm_ptr_));
