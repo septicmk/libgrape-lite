@@ -28,6 +28,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
  public:
   using vid_t = typename FRAG_T::vid_t;
   using vertex_t = typename FRAG_T::vertex_t;
+  using msg_t = vid_t;
 
   explicit LCCContext(const FRAG_T& frag) : grape::VoidContext<FRAG_T>(frag) {}
 
@@ -58,12 +59,14 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
     size_t n_vertices = 0;
     using nbr_t = typename FRAG_T::nbr_t;
     for (auto u : frag.InnerVertices()) {
-      n_edges += frag.GetLocalOutDegree(u) + frag.GetLocalInDegree(u);
+      n_edges += frag.GetLocalOutDegree(u);
       n_vertices += 1;
     }
 
-    messages.InitBuffer(2 * n_edges * (sizeof(nbr_t) + sizeof(size_t)),
-                        2 * n_edges * (sizeof(nbr_t) + sizeof(size_t)));
+    messages.InitBuffer(
+        std::max(n_edges * (sizeof(thrust::pair<vid_t, msg_t>)),
+                 n_vertices * (sizeof(size_t))),
+        1 * (sizeof(thrust::pair<vid_t, msg_t>)));  // rely on syncLengths()
   }
 
   void Output(std::ostream& os) override {
@@ -86,13 +89,13 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
   }
 
   LoadBalancing lb{};
-  VertexArray<size_t, vid_t> valid_out_degree;
-  VertexArray<size_t, vid_t> global_degree;
+  VertexArray<msg_t, vid_t> valid_out_degree;
+  VertexArray<msg_t, vid_t> global_degree;
   VertexArray<size_t, vid_t> filling_offset;
   VertexArray<size_t, vid_t> tricnt;
   thrust::device_vector<size_t> row_offset;
-  thrust::device_vector<size_t> col_indices;
-  thrust::device_vector<size_t> col_sorted_indices;
+  thrust::device_vector<msg_t> col_indices;
+  thrust::device_vector<msg_t> col_sorted_indices;
   int stage{};
 #ifdef PROFILING
   double get_msg_time{};
@@ -128,7 +131,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                                     inner_vertices.size());
 
     ForEach(messages.stream(), ws_in, [=] __device__(vertex_t v) mutable {
-      size_t degree = d_frag.GetLocalOutDegree(v);
+      msg_t degree = d_frag.GetLocalOutDegree(v);
 
       d_global_degree[v] = degree;
       d_mm.template SendMsgThroughOEdges(d_frag, v, degree);
@@ -152,8 +155,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     if (ctx.stage == 0) {
       ctx.stage = 1;
       // Get degree of outer vertices
-      messages.template ParallelProcess<dev_fragment_t, size_t>(
-          dev_frag, [=] __device__(vertex_t v, size_t degree) mutable {
+      messages.template ParallelProcess<dev_fragment_t, msg_t>(
+          dev_frag, [=] __device__(vertex_t v, msg_t degree) mutable {
             d_global_degree[v] = degree;
           });
 
@@ -163,8 +166,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, dev_frag, ws_in,
           [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
             vertex_t v = nbr.get_neighbor();
-            size_t u_degree = d_global_degree[u];
-            size_t v_degree = d_global_degree[v];
+            msg_t u_degree = d_global_degree[u];
+            msg_t v_degree = d_global_degree[v];
             vid_t u_gid = dev_frag.GetInnerVertexGid(u);
             vid_t v_gid = dev_frag.Vertex2Gid(v);
 
@@ -181,8 +184,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       messages.ForceContinue();
     } else if (ctx.stage == 1) {
       ctx.stage = 2;
-      messages.template ParallelProcess<dev_fragment_t, size_t>(
-          dev_frag, [=] __device__(vertex_t v, size_t degree) mutable {
+      messages.template ParallelProcess<dev_fragment_t, msg_t>(
+          dev_frag, [=] __device__(vertex_t v, msg_t degree) mutable {
             d_valid_out_degree[v] = degree;
           });
 
@@ -246,7 +249,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]) / 2;
             for (auto begin = d_row_offset[idx];
                  begin < d_row_offset[idx] + length; begin++) {
-              size_t v_gid = d_msg_col_indices[begin];
+              msg_t v_gid = d_msg_col_indices[begin];
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
@@ -261,8 +264,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
       auto* d_msg_col_indices =
           thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
-      messages.template ParallelProcess<dev_fragment_t, vid_t>(
-          dev_frag, [=] __device__(vertex_t u, vid_t v_gid) mutable {
+      messages.template ParallelProcess<dev_fragment_t, msg_t>(
+          dev_frag, [=] __device__(vertex_t u, msg_t v_gid) mutable {
             vertex_t v;
             assert(dev_frag.IsOuterVertex(u));
             if (dev_frag.Gid2Vertex(v_gid, v)) {
@@ -279,7 +282,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]) / 2;
             for (auto begin = d_row_offset[idx] + length;
                  begin < d_row_offset[idx + 1]; begin++) {
-              size_t v_gid = d_msg_col_indices[begin];
+              msg_t v_gid = d_msg_col_indices[begin];
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
@@ -292,8 +295,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
 
-      messages.template ParallelProcess<dev_fragment_t, vid_t>(
-          dev_frag, [=] __device__(vertex_t u, vid_t v_gid) mutable {
+      messages.template ParallelProcess<dev_fragment_t, msg_t>(
+          dev_frag, [=] __device__(vertex_t u, msg_t v_gid) mutable {
             vertex_t v;
             assert(dev_frag.IsOuterVertex(u));
             if (dev_frag.Gid2Vertex(v_gid, v)) {
@@ -373,8 +376,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                     auto min_edge_end = min_edge_begin + min_degree;
                     auto max_edge_begin =
                         degree_u < degree_v ? edge_begin_v : edge_begin_u;
-                    ArrayView<size_t> dst_gids(&d_col_indices[max_edge_begin],
-                                               max_degree);
+                    ArrayView<msg_t> dst_gids(&d_col_indices[max_edge_begin],
+                                              max_degree);
 
                     for (; min_edge_begin < min_edge_end; min_edge_begin++) {
                       auto dst_gid_from_small = d_col_indices[min_edge_begin];
