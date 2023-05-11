@@ -77,7 +77,9 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
     traversal_kernel_time = 0;
 #endif
 
-    messages.InitBuffer(100 * 1024 * 1024, 100 * 1024 * 1024);
+    // messages.InitBuffer(100 * 1024 * 1024, 100 * 1024 * 1024);
+    messages.InitBuffer(sizeof(label_t) * iv.size(),
+                        sizeof(label_t) * ov.size());
   }
 
   void Output(std::ostream& os) override {
