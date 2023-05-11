@@ -173,7 +173,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
-              dev::atomicAdd64(&d_valid_out_degree[u], 1);
+              atomicAdd(&d_valid_out_degree[u], 1);
             }
           },
           ctx.lb);
