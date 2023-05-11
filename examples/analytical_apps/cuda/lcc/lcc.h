@@ -68,7 +68,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
     }
 
     messages.InitBuffer(
-        std::max(n_edges * (sizeof(thrust::pair<vid_t, msg_t>) / M),
+        std::max((n_edges / M + 1) * (sizeof(thrust::pair<vid_t, msg_t>)),
                  n_vertices * (sizeof(size_t))),
         1 * (sizeof(thrust::pair<vid_t, msg_t>)));  // rely on syncLengths()
   }
@@ -252,8 +252,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
-            for (auto begin = d_row_offset[idx] + CHUNK_START(0, length, M);
-                 begin < d_row_offset[idx] + CHUNK_SIZE(0, length, M);
+            for (auto begin = d_row_offset[idx] + CHUNK_START(0, length, M),
+                      begin < d_row_offset[idx] + CHUNK_SIZE(0, length, M);
                  begin++) {
               msg_t v_gid = d_msg_col_indices[begin];
 
@@ -287,8 +287,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
-            for (auto begin = d_row_offset[idx] + CHUNK_START(K, length, M);
-                 begin < d_row_offset[idx + 1] + CHUNK_SIZE(K, length, M);
+            for (auto begin = d_row_offset[idx] + CHUNK_START(K, length, M),
+                      begin < d_row_offset[idx + 1] + CHUNK_SIZE(K, length, M);
                  begin++) {
               msg_t v_gid = d_msg_col_indices[begin];
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
