@@ -78,8 +78,9 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
 #endif
 
     // messages.InitBuffer(100 * 1024 * 1024, 100 * 1024 * 1024);
-    messages.InitBuffer((sizeof(label_t) + sizeof(vid_t)) * iv.size(),
-                        (sizeof(label_t) + sizeof(vid_t)) * ov.size());
+    messages.InitBuffer( //N.B. pair padding
+        (2 * std::max(sizeof(label_t), sizeof(vid_t))) * iv.size(),
+        (2 * std::max(sizeof(label_t), sizeof(vid_t))) * ov.size());
   }
 
   void Output(std::ostream& os) override {
