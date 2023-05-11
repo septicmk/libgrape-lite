@@ -23,7 +23,8 @@ limitations under the License.
 
 #define M 16
 #define CHUNK_SIZE(I, N, m) (((I) < (N) % (m)) + (N) / (m))
-#define CHUNK_START(I, N, m) ((((I) < ((N) % (m))?(I):((N)%(m))) + (I) * ((N)/(m)) )
+#define CHUNK_START(I, N, m) \
+  (((I) < ((N) % (m)) ? (I) : ((N) % (m))) + (I) * ((N) / (m)))
 
 namespace grape {
 namespace cuda {
@@ -252,8 +253,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
-            for (auto begin = d_row_offset[idx] + CHUNK_START(0, length, M),
-                      begin < d_row_offset[idx] + CHUNK_SIZE(0, length, M);
+            for (auto begin = d_row_offset[idx] + CHUNK_START(0, length, M);
+                 begin < d_row_offset[idx] + CHUNK_SIZE(0, length, M);
                  begin++) {
               msg_t v_gid = d_msg_col_indices[begin];
 
@@ -287,8 +288,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
-            for (auto begin = d_row_offset[idx] + CHUNK_START(K, length, M),
-                      begin < d_row_offset[idx + 1] + CHUNK_SIZE(K, length, M);
+            for (auto begin = d_row_offset[idx] + CHUNK_START(K, length, M);
+                 begin < d_row_offset[idx] + CHUNK_SIZE(K, length, M);
                  begin++) {
               msg_t v_gid = d_msg_col_indices[begin];
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
