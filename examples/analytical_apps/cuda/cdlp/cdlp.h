@@ -78,8 +78,8 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
 #endif
 
     // messages.InitBuffer(100 * 1024 * 1024, 100 * 1024 * 1024);
-    messages.InitBuffer(sizeof(label_t) * iv.size(),
-                        sizeof(label_t) * ov.size());
+    messages.InitBuffer((sizeof(label_t) + sizeof(vid_t)) * iv.size(),
+                        (sizeof(label_t) + sizeof(vid_t)) * ov.size());
   }
 
   void Output(std::ostream& os) override {
@@ -234,6 +234,8 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
             label_t best_label = 0;
             int64_t best_count = 0;
 
+            // Enumerate its neighbor to find MFL
+            // TODO(mengke.mk) Single thread with severe load-imbalance.
             for (auto eid = begin + 1; eid < end; eid++) {
               if (local_labels[eid] != local_labels[eid - 1]) {
                 if (curr_count > best_count) {
