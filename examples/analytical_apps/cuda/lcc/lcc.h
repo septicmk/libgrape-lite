@@ -21,6 +21,10 @@ limitations under the License.
 #include "cuda/app_config.h"
 #include "grape/grape.h"
 
+#define M 16
+#define CHUNK_SIZE(I, N, m) (((I) < (N) % (m)) + (N) / (m))
+#define CHUNK_START(I, N, m) ((((I) < ((N) % (m))?(I):((N)%(m))) + (I) * ((N)/(m)) )
+
 namespace grape {
 namespace cuda {
 template <typename FRAG_T>
@@ -64,7 +68,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
     }
 
     messages.InitBuffer(
-        std::max(n_edges * (sizeof(thrust::pair<vid_t, msg_t>)),
+        std::max(n_edges * (sizeof(thrust::pair<vid_t, msg_t>) / M),
                  n_vertices * (sizeof(size_t))),
         1 * (sizeof(thrust::pair<vid_t, msg_t>)));  // rely on syncLengths()
   }
@@ -247,9 +251,10 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
-            size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]) / 2;
-            for (auto begin = d_row_offset[idx];
-                 begin < d_row_offset[idx] + length; begin++) {
+            size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
+            for (auto begin = d_row_offset[idx] + CHUNK_START(0, length, M);
+                 begin < d_row_offset[idx] + CHUNK_SIZE(0, length, M);
+                 begin++) {
               msg_t v_gid = d_msg_col_indices[begin];
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
@@ -258,8 +263,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
       stream.Sync();
       messages.ForceContinue();
-    } else if (ctx.stage == 2) {
-      ctx.stage = 3;
+    } else if (ctx.stage >= 2 && ctx.stage < 1 + M) {
+      int K = ctx.stage - 1;
+      ctx.stage = ctx.stage + 1;
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
@@ -280,18 +286,18 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
-            size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]) / 2;
-            for (auto begin = d_row_offset[idx] + length;
-                 begin < d_row_offset[idx + 1]; begin++) {
+            size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
+            for (auto begin = d_row_offset[idx] + CHUNK_START(K, length, M);
+                 begin < d_row_offset[idx + 1] + CHUNK_SIZE(K, length, M);
+                 begin++) {
               msg_t v_gid = d_msg_col_indices[begin];
-
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
           });
       stream.Sync();
       messages.ForceContinue();
-    } else if (ctx.stage == 3) {
-      ctx.stage = 4;
+    } else if (ctx.stage == 1 + M) {
+      ctx.stage = ctx.stage + 1;
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
