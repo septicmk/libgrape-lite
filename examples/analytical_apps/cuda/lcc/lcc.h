@@ -277,7 +277,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]) / 2;
-            for (auto begin = d_row_offset[idx] + length ;
+            for (auto begin = d_row_offset[idx] + length;
                  begin < d_row_offset[idx + 1]; begin++) {
               size_t v_gid = d_msg_col_indices[begin];
 
