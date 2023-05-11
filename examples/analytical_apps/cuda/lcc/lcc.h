@@ -28,7 +28,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
  public:
   using vid_t = typename FRAG_T::vid_t;
   using vertex_t = typename FRAG_T::vertex_t;
-  using msg_t = vid_t;
+  using msg_t = typename FRAG_T::vid_t;
 
   explicit LCCContext(const FRAG_T& frag) : grape::VoidContext<FRAG_T>(frag) {}
 
