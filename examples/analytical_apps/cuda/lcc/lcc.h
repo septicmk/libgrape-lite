@@ -254,7 +254,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
             for (auto begin =
-                     d_row_offset[idx] + LLC_CHUNK_START(0, length, LCC_M);
+                     d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(0, length, LCC_M);
                  begin++) {
               msg_t v_gid = d_msg_col_indices[begin];
