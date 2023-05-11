@@ -28,7 +28,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
  public:
   using vid_t = typename FRAG_T::vid_t;
   using vertex_t = typename FRAG_T::vertex_t;
-  using msg_t = typename FRAG_T::vid_t;
+  using msg_t = vid_t;
 
   explicit LCCContext(const FRAG_T& frag) : grape::VoidContext<FRAG_T>(frag) {}
 
@@ -114,6 +114,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
   using edata_t = typename fragment_t::edata_t;
   using vertex_t = typename dev_fragment_t::vertex_t;
   using nbr_t = typename dev_fragment_t::nbr_t;
+  using msg_t = vid_t;
 
   static constexpr grape::MessageStrategy message_strategy =
       grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
