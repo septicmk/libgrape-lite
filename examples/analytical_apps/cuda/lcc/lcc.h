@@ -222,11 +222,11 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       LOG(INFO) << "Filtered edges: " << n_filtered_edges;
 #endif
 
-      std::cout << "before resize col_indices" << std::end;
+      std::cout << "before resize col_indices" << std::endl;
       ctx.col_indices.resize(n_filtered_edges);
-      std::cout << "before resize sorted col_indices" << std::end;
+      std::cout << "before resize sorted col_indices" << std::endl;
       ctx.col_sorted_indices.resize(n_filtered_edges);
-      std::cout << "finished all allocation" << std::end;
+      std::cout << "finished all allocation" << std::endl;
 
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
       auto* d_msg_col_indices =
