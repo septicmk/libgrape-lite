@@ -320,6 +320,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           });
 
+      auto size = vertices.size();
       auto n_filtered_edges = ctx.row_offset[size];
       ctx.col_sorted_indices.resize(n_filtered_edges);
 
