@@ -249,7 +249,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           },
           ctx.lb);
-      ctx.filling_offset.Init(vertices, 0);
 
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
@@ -267,6 +266,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
 
       stream.Sync();
+      ctx.filling_offset.Init(vertices, 0);
       messages.ForceContinue();
     } else if (ctx.stage >= 2 && ctx.stage < 1 + LCC_M) {
       int K = ctx.stage - 1;
