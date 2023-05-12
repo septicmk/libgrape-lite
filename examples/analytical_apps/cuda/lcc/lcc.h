@@ -323,6 +323,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto size = vertices.size();
       auto n_filtered_edges = ctx.row_offset[size];
       ctx.col_sorted_indices.resize(n_filtered_edges);
+      WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
 
       ForEachOutgoingEdge(
           stream, dev_frag, ws_in,
