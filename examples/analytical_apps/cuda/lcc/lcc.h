@@ -17,6 +17,7 @@ limitations under the License.
 #define EXAMPLES_ANALYTICAL_APPS_CUDA_LCC_LCC_H_
 #ifdef __CUDACC__
 #include <iomanip>
+#include <iostream>
 
 #include "cuda/app_config.h"
 #include "grape/grape.h"
