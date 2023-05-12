@@ -249,7 +249,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           },
           ctx.lb);
-      filling_offset.Init(vertices, 0);
+      ctx.filling_offset.Init(vertices, 0);
 
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
