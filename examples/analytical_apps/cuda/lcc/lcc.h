@@ -223,11 +223,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       LOG(INFO) << "Filtered edges: " << n_filtered_edges;
 #endif
 
-      std::cout << "before resize col_indices" << std::endl;
       ctx.col_indices.resize(n_filtered_edges);
-      std::cout << "before resize sorted col_indices" << std::endl;
-      ctx.col_sorted_indices.resize(n_filtered_edges);
-      std::cout << "finished all allocation" << std::endl;
 
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
       auto* d_msg_col_indices =
@@ -247,11 +243,13 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
               auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
-              d_col_indices[pos] = v.GetValue();
-              d_msg_col_indices[pos] = v_gid;
+              // d_col_indices[pos] = v.GetValue();
+              // d_msg_col_indices[pos] = v_gid;
+              d_col_indices[pos] = v_gid;
             }
           },
           ctx.lb);
+      filling_offset.Init(vertices, 0);
 
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
@@ -261,7 +259,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(0, length, LCC_M);
                  begin++) {
-              msg_t v_gid = d_msg_col_indices[begin];
+              // msg_t v_gid = d_msg_col_indices[begin];
+              msg_t v_gid = d_col_indices[begin];
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
@@ -297,7 +296,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(K, length, LCC_M);
                  begin++) {
-              msg_t v_gid = d_msg_col_indices[begin];
+              // msg_t v_gid = d_msg_col_indices[begin];
+              msg_t v_gid = d_col_indices[begin];
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
           });
@@ -319,6 +319,26 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               d_col_indices[pos] = v.GetValue();
             }
           });
+
+      auto n_filtered_edges = ctx.row_offset[size];
+      ctx.col_sorted_indices.resize(n_filtered_edges);
+
+      ForEachOutgoingEdge(
+          stream, dev_frag, ws_in,
+          [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+            vertex_t v = nbr.get_neighbor();
+            vid_t u_degree = d_global_degree[u];
+            vid_t v_degree = d_global_degree[v];
+            vid_t u_gid = dev_frag.GetInnerVertexGid(u);
+            vid_t v_gid = dev_frag.Vertex2Gid(v);
+
+            if ((u_degree > v_degree) ||
+                (u_degree == v_degree && u_gid > v_gid)) {
+              auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
+              d_col_indices[pos] = v.GetValue();
+            }
+          },
+          ctx.lb);
 
       // Sort destinations with segmented sort
       {
@@ -448,7 +468,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
       messages.ForceContinue();
     } else if (ctx.stage == LCC_M + 2) {
-      std::cout << "marker" << std::endl;
       messages.template ParallelProcess<dev_fragment_t, size_t>(
           dev_frag, [=] __device__(vertex_t v, size_t tri_cnt) mutable {
             dev::atomicAdd64(&d_tricnt[v], tri_cnt);
