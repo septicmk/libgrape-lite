@@ -446,7 +446,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       }
 
       messages.ForceContinue();
-    } else if (ctx.stage == 4) {
+    } else if (ctx.stage == LCC_M + 2) {
+      std::cout << "marker" << std::endl;
       messages.template ParallelProcess<dev_fragment_t, size_t>(
           dev_frag, [=] __device__(vertex_t v, size_t tri_cnt) mutable {
             dev::atomicAdd64(&d_tricnt[v], tri_cnt);
