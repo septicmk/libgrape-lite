@@ -224,6 +224,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 #endif
 
       ctx.col_indices.resize(n_filtered_edges);
+      ctx.col_sorted_indices.resize(n_filtered_edges);
 
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
       auto* d_msg_col_indices =
@@ -243,9 +244,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
               auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
-              // d_col_indices[pos] = v.GetValue();
-              // d_msg_col_indices[pos] = v_gid;
-              d_col_indices[pos] = v_gid;
+              d_col_indices[pos] = v.GetValue();
+              d_msg_col_indices[pos] = v_gid;
+              //d_col_indices[pos] = v_gid;
             }
           },
           ctx.lb);
@@ -258,15 +259,15 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(0, length, LCC_M);
                  begin++) {
-              // msg_t v_gid = d_msg_col_indices[begin];
-              msg_t v_gid = d_col_indices[begin];
+              msg_t v_gid = d_msg_col_indices[begin];
+              //msg_t v_gid = d_col_indices[begin];
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
           });
 
       stream.Sync();
-      ctx.filling_offset.Init(vertices, 0);
+      //ctx.filling_offset.Init(vertices, 0);
       messages.ForceContinue();
     } else if (ctx.stage >= 2 && ctx.stage < 1 + LCC_M) {
       int K = ctx.stage - 1;
@@ -296,8 +297,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(K, length, LCC_M);
                  begin++) {
-              // msg_t v_gid = d_msg_col_indices[begin];
-              msg_t v_gid = d_col_indices[begin];
+              msg_t v_gid = d_msg_col_indices[begin];
+              //msg_t v_gid = d_col_indices[begin];
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
           });
@@ -320,28 +321,28 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           });
 
-      auto size = vertices.size();
-      auto n_filtered_edges = ctx.row_offset[size];
-      ctx.col_sorted_indices.resize(n_filtered_edges);
-      WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
+      //auto size = vertices.size();
+      //auto n_filtered_edges = ctx.row_offset[size];
+      //ctx.col_sorted_indices.resize(n_filtered_edges);
+      //WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
 
-      ForEachOutgoingEdge(
-          stream, dev_frag, ws_in,
-          [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
-            vertex_t v = nbr.get_neighbor();
-            vid_t u_degree = d_global_degree[u];
-            vid_t v_degree = d_global_degree[v];
-            vid_t u_gid = dev_frag.GetInnerVertexGid(u);
-            vid_t v_gid = dev_frag.Vertex2Gid(v);
+      //ForEachOutgoingEdge(
+      //    stream, dev_frag, ws_in,
+      //    [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+      //      vertex_t v = nbr.get_neighbor();
+      //      vid_t u_degree = d_global_degree[u];
+      //      vid_t v_degree = d_global_degree[v];
+      //      vid_t u_gid = dev_frag.GetInnerVertexGid(u);
+      //      vid_t v_gid = dev_frag.Vertex2Gid(v);
 
-            if ((u_degree > v_degree) ||
-                (u_degree == v_degree && u_gid > v_gid)) {
-              auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
-              assert(pos + 1 <= d_row_offset[u.GetValue() + 1]);
-              d_col_indices[pos] = v.GetValue();
-            }
-          },
-          ctx.lb);
+      //      if ((u_degree > v_degree) ||
+      //          (u_degree == v_degree && u_gid > v_gid)) {
+      //        auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
+      //        assert(pos + 1 <= d_row_offset[u.GetValue() + 1]);
+      //        d_col_indices[pos] = v.GetValue();
+      //      }
+      //    },
+      //    ctx.lb);
 
       // Sort destinations with segmented sort
       {
