@@ -266,7 +266,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
 
       stream.Sync();
+      std::cout << "before init" << std::endl;
       ctx.filling_offset.Init(vertices, 0);
+      std::cout << "finish init" << std::endl;
       messages.ForceContinue();
     } else if (ctx.stage >= 2 && ctx.stage < 1 + LCC_M) {
       int K = ctx.stage - 1;
