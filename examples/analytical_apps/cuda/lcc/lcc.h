@@ -239,7 +239,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             vid_t u_degree = d_global_degree[u];
             vid_t v_degree = d_global_degree[v];
             vid_t u_gid = dev_frag.GetInnerVertexGid(u);
-            //vid_t v_gid = dev_frag.Vertex2Gid(v);
+            vid_t v_gid = dev_frag.Vertex2Gid(v);
 
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
