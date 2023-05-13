@@ -401,7 +401,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                            size_t tmp = d_compact_offset[idx];
                            for (auto begin = d_offsets[idx];
                                 begin < d_filling_offset[idx]; begin++) {
-                             d_keys_out[tmp++] = d_keys_in[begin])
+                             d_keys_out[tmp++] = d_keys_in[begin]);
                            }
                          });
         stream.Sync();
