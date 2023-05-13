@@ -61,7 +61,7 @@ inline void KernelSizing(int& block_num, int& block_size, size_t work_size) {
                static_cast<int>((work_size + block_size - 1) / block_size));
 }
 
-inline void ReportMemroyUsage() {
+inline void ReportMemroyUsage(std::string marker) {
   size_t free_byte, total_byte;
   double giga = (1ul) << 30;
   cudaError_t error_id = cudaMemGetInfo(&free_byte, &total_byte);
@@ -69,7 +69,7 @@ inline void ReportMemroyUsage() {
     printf("cudaMemGetInfo() failed: %s\n", cudaGetErrorString(error_id));
     return;
   }
-  printf("Global Memory[Total, Free] (Gb): [%.3f, %.3f]\n",
+  printf("%s: Global Memory[Total, Free] (Gb): [%.3f, %.3f]\n", marker.c_str(),
          total_byte / giga, free_byte / giga);
 }
 
