@@ -386,7 +386,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             d_temp_storage, temp_storage_bytes, d_valid_out_degree.data(),
             d_compact_row_offset + 1, size, stream.cuda_stream()));
         CHECK_CUDA(cudaFree(d_temp_storage));
-        stream.sync();
+        stream.Sync();
       }
 
       // Sort destinations with segmented sort
