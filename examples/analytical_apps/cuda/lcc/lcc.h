@@ -239,14 +239,14 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             vid_t u_degree = d_global_degree[u];
             vid_t v_degree = d_global_degree[v];
             vid_t u_gid = dev_frag.GetInnerVertexGid(u);
-            vid_t v_gid = dev_frag.Vertex2Gid(v);
+            //vid_t v_gid = dev_frag.Vertex2Gid(v);
 
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
               auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
+              //d_col_indices[pos] = v.GetValue();
+              //d_msg_col_indices[pos] = v_gid;
               d_col_indices[pos] = v.GetValue();
-              d_msg_col_indices[pos] = v_gid;
-              //d_col_indices[pos] = v_gid;
             }
           },
           ctx.lb);
@@ -259,8 +259,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(0, length, LCC_M);
                  begin++) {
-              msg_t v_gid = d_msg_col_indices[begin];
-              //msg_t v_gid = d_col_indices[begin];
+              //msg_t v_gid = d_msg_col_indices[begin];
+              msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
@@ -297,8 +297,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(K, length, LCC_M);
                  begin++) {
-              msg_t v_gid = d_msg_col_indices[begin];
-              //msg_t v_gid = d_col_indices[begin];
+              //msg_t v_gid = d_msg_col_indices[begin];
+              msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
           });
