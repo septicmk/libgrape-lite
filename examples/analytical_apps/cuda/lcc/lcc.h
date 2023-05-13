@@ -266,9 +266,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
 
       stream.Sync();
-      std::cout << "before init" << std::endl;
       ctx.filling_offset.Init(vertices, 0);
-      std::cout << "finish init" << std::endl;
       messages.ForceContinue();
     } else if (ctx.stage >= 2 && ctx.stage < 1 + LCC_M) {
       int K = ctx.stage - 1;
@@ -326,6 +324,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto n_filtered_edges = ctx.row_offset[size];
       ctx.col_sorted_indices.resize(n_filtered_edges);
       WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
+      std::cout << "before filling ws-in" << std::endl;
 
       ForEachOutgoingEdge(
           stream, dev_frag, ws_in,
@@ -343,6 +342,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           },
           ctx.lb);
+      std::cout << "after filling ws-in" << std::endl;
 
       // Sort destinations with segmented sort
       {
