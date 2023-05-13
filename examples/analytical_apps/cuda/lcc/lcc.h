@@ -332,6 +332,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto size = vertices.size();
       auto n_filtered_edges = ctx.row_offset[size];
       ctx.col_sorted_indices.resize(n_filtered_edges);
+      std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
+      ReportMemroyUsage("Resize");
 
       // Sort destinations with segmented sort
       {
@@ -358,6 +360,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             num_items, num_segments, d_offsets, d_filling_offset));
         // Allocate temporary storage
         CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+        std::cout << "temp_storage_bytes: " << temp_storage_bytes << std::endl;
+        ReportMemroyUsage("temp storage");
         // Run sorting operation
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
             d_temp_storage, temp_storage_bytes, d_keys,
