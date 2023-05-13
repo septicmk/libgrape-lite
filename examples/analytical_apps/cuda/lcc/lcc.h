@@ -374,6 +374,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             thrust::raw_pointer_cast(ctx.compact_row_offset.data());
         auto size = vertices.size();
 
+        void* d_temp_storage = nullptr;
+        size_t temp_storage_bytes = 0;
+
         CHECK_CUDA(cub::DeviceScan::InclusiveSum(
             d_temp_storage, temp_storage_bytes, d_valid_out_degree.data(),
             d_compact_row_offset + 1, size, stream.cuda_stream()));
@@ -383,7 +386,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             d_compact_row_offset + 1, size, stream.cuda_stream()));
         CHECK_CUDA(cudaFree(d_temp_storage));
         valid_out_degree.Clear();
-
       }
 
       // Sort destinations with segmented sort
