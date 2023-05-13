@@ -356,21 +356,24 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         void* d_temp_storage = nullptr;
         size_t temp_storage_bytes = 0;
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-            d_temp_storage, temp_storage_bytes, d_keys,
+            d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out,
             num_items, num_segments, d_offsets, d_filling_offset));
         // Allocate temporary storage
+        CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+        CHECK_CUDA(cudaFree(d_temp_storage));
         CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
         std::cout << "temp_storage_bytes: " << temp_storage_bytes << std::endl;
         ReportMemroyUsage("temp storage");
         // Run sorting operation
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-            d_temp_storage, temp_storage_bytes, d_keys,
+            d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out,
             num_items, num_segments, d_offsets, d_filling_offset));
         CHECK_CUDA(cudaFree(d_temp_storage));
 #ifdef PROFILING
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
-        sorted_col = d_keys.Current();
+        //sorted_col = d_keys.Current();
+        sorted_col = d_keys_out;
       }
 
       {
