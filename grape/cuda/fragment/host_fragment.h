@@ -392,6 +392,8 @@ class HostFragment
   }
 
   void ReloadTopology() const {
+    auto& ie = ie_.get_edges();
+    auto& oe = oe_.get_edges();
     if (load_strategy == grape::LoadStrategy::kOnlyIn ||
         load_strategy == grape::LoadStrategy::kBothOutIn) {
       d_ie_.resize(ie_.edge_num());
