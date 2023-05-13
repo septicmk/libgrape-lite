@@ -337,12 +337,11 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
               auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
+              assert(pos + 1 <= d_row_offset[u.GetValue() + 1]);
               d_col_indices[pos] = v.GetValue();
             }
           },
           ctx.lb);
-      stream.Sync();
-      std::cout << "filling" << std::endl;
 
       // Sort destinations with segmented sort
       {
@@ -377,8 +376,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
       }
-      stream.Sync();
-      std::cout << "sort" << std::endl;
 
       {
         WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
@@ -463,8 +460,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             });
       }
 
-      stream.Sync();
-      std::cout << "couting" << std::endl;
 
       {
         WorkSourceRange<vertex_t> ws_in(*ov.begin(), ov.size());
