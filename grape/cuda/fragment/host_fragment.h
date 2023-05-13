@@ -383,8 +383,8 @@ class HostFragment
             << " ienum: " << ie_.edge_num() << " oenum: " << oe_.edge_num();
   }
 
-  void OffloadTopology const () {
-    std::const_cast<HostFragment*>(this) -> __OffloadTopology__();
+  void OffloadTopology() const {
+    std::const_cast<HostFragment*>(this)->__OffloadTopology__();
   }
 
   void __OffloadTopology__() {
@@ -395,8 +395,8 @@ class HostFragment
     d_oe_.shrink_to_fit();
   }
 
-  void ReloadTopology const () {
-    std::const_cast<HostFragment*>(this) -> __ReloadTopology__();
+  void ReloadTopology() const {
+    std::const_cast<HostFragment*>(this)->__ReloadTopology__();
   }
 
   void __ReloadTopology__() {
