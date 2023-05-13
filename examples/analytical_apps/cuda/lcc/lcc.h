@@ -323,6 +323,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               d_col_indices[pos] = v.GetValue();
             }
           });
+      
+      // Make space for Triangle counting;
+      frag.OffloadTopology();
 
       auto size = vertices.size();
       auto n_filtered_edges = ctx.row_offset[size];

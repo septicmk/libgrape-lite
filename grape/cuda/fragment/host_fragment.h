@@ -383,6 +383,33 @@ class HostFragment
             << " ienum: " << ie_.edge_num() << " oenum: " << oe_.edge_num();
   }
 
+  void OffloadTopology() {
+    d_ie_.resize(0);
+    d_ie_.shrink_to_fit();
+
+    d_oe_.resize(0);
+    d_oe_.shrink_to_fit();
+  }
+
+  void ReloadTopology() {
+    if (load_strategy == grape::LoadStrategy::kOnlyIn ||
+        load_strategy == grape::LoadStrategy::kBothOutIn) {
+      d_ie_.resize(ie_.edge_num());
+      CHECK_CUDA(cudaMemcpyAsync(thrust::raw_pointer_cast(d_ie_.data()),
+                                 ie.data(), sizeof(nbr_t) * ie_.edge_num(),
+                                 cudaMemcpyHostToDevice, stream.cuda_stream()));
+    }
+
+    if (load_strategy == grape::LoadStrategy::kOnlyOut ||
+        load_strategy == grape::LoadStrategy::kBothOutIn) {
+      d_oe_.resize(oe_.edge_num());
+      CHECK_CUDA(cudaMemcpyAsync(thrust::raw_pointer_cast(d_oe_.data()),
+                                 oe.data(), sizeof(nbr_t) * oe_.edge_num(),
+                                 cudaMemcpyHostToDevice, stream.cuda_stream()));
+    }
+    stream.Sync();
+  }
+
   void ReleaseDeviceCSR() {
     d_ie_.resize(0);
     d_ie_.shrink_to_fit();
