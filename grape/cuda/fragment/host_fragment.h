@@ -384,10 +384,6 @@ class HostFragment
   }
 
   void OffloadTopology() const {
-    std::const_cast<HostFragment*>(this)->__OffloadTopology__();
-  }
-
-  void __OffloadTopology__() {
     d_ie_.resize(0);
     d_ie_.shrink_to_fit();
 
@@ -396,10 +392,6 @@ class HostFragment
   }
 
   void ReloadTopology() const {
-    std::const_cast<HostFragment*>(this)->__ReloadTopology__();
-  }
-
-  void __ReloadTopology__() {
     if (load_strategy == grape::LoadStrategy::kOnlyIn ||
         load_strategy == grape::LoadStrategy::kBothOutIn) {
       d_ie_.resize(ie_.edge_num());
