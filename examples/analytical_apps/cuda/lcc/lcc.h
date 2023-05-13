@@ -448,6 +448,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
         sorted_col = d_keys.Current();
+        ReportMemroyUsage("Here");
       }
 
       {
