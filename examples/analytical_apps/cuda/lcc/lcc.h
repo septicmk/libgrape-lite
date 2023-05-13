@@ -361,9 +361,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         // Allocate temporary storage
         CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
         CHECK_CUDA(cudaFree(d_temp_storage));
-        CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
         std::cout << "temp_storage_bytes: " << temp_storage_bytes << std::endl;
         ReportMemroyUsage("temp storage");
+        CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
         // Run sorting operation
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
             d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out,
