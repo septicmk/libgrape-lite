@@ -384,10 +384,10 @@ class HostFragment
   }
 
   void OffloadTopology() const {
-    d_ie_.resize(0);
+    d_ie_.clear();
     d_ie_.shrink_to_fit();
 
-    d_oe_.resize(0);
+    d_oe_.clear();
     d_oe_.shrink_to_fit();
   }
 
