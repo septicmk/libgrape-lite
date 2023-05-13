@@ -323,24 +323,54 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               d_col_indices[pos] = v.GetValue();
             }
           });
-      
+
       // Make space for Triangle counting;
       ReportMemroyUsage("Before");
       frag.OffloadTopology();
       ReportMemroyUsage("After");
 
       auto size = vertices.size();
+      size_t valid_esize = 0;
       auto n_filtered_edges = ctx.row_offset[size];
       ctx.col_sorted_indices.resize(n_filtered_edges);
       std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
       ReportMemroyUsage("Resize");
 
+      {
+        auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
+        auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
+        auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
+        WorkSourceRange<vertex_t> ws_in(*vertices.begin(), vertices.size());
+        ForEachWithIndex(
+            stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
+              // TODO(mengke): replace it with ForEachOutgoingEdge
+              size_t length = (d_filling_offset[idx] - d_row_offset[idx]);
+              d_valid_out_degree[idx] = length;
+            });
+        void* d_temp_storage = nullptr;
+        size_t* ans = nullptr CHECK_CUDA(cudaMalloc(&ans, sizeof(size_t)));
+        size_t temp_storage_bytes = 0;
+        CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
+                                          d_valid_out_degree.data(), ans, size,
+                                          stream.cuda_stream()));
+        CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+        CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
+                                          d_valid_out_degree.data(), ans, size,
+                                          stream.cuda_stream()));
+        CHECK_CUDA(cudaFree(d_temp_storage));
+        CHECK_CUDA(cudaMemcpyAsync(&valid_esize, ans, sizeof(size_t),
+                                   cudaMemcpyDeviceToHost,
+                                   stream.cuda_stream()));
+        stream.Sync();
+      }
+      std::cout << "n_valid_edges: " << valid_esize << std::endl;
+
       // Sort destinations with segmented sort
       {
         WorkSourceRange<vertex_t> ws_in(*vertices.begin(), vertices.size());
         size_t n_vertices = vertices.size();
-        size_t n_edges = ctx.col_sorted_indices.size();
-        size_t num_items = n_edges;
+        //size_t n_edges = ctx.col_sorted_indices.size();
+        size_t num_items = valid_esize;//n_edges;
         size_t num_segments = n_vertices;
         auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
@@ -356,19 +386,14 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         void* d_temp_storage = nullptr;
         size_t temp_storage_bytes = 0;
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-            d_temp_storage, temp_storage_bytes, d_keys,
-            num_items, num_segments, d_offsets, d_filling_offset));
+            d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
+            d_offsets, d_filling_offset));
         // Allocate temporary storage
-        std::cout << "temp_storage_bytes: " << temp_storage_bytes << std::endl;
         CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-        CHECK_CUDA(cudaFree(d_temp_storage));
-        std::cout << "have freed" << std::endl;
-        CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-        ReportMemroyUsage("temp storage");
         // Run sorting operation
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-            d_temp_storage, temp_storage_bytes, d_keys,
-            num_items, num_segments, d_offsets, d_filling_offset));
+            d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
+            d_offsets, d_filling_offset));
         CHECK_CUDA(cudaFree(d_temp_storage));
 #ifdef PROFILING
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
@@ -382,7 +407,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
         auto* d_col_indices = sorted_col;
-            //thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
+        // thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
 
         // Calculate intersection
         ForEachWithIndex(
@@ -476,7 +501,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
     }
   }
-};
+};  // namespace cuda
 }  // namespace cuda
 }  // namespace grape
 #endif  // __CUDACC__
