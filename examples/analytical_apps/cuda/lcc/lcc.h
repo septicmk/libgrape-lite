@@ -324,7 +324,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto n_filtered_edges = ctx.row_offset[size];
       ctx.col_sorted_indices.resize(n_filtered_edges);
       WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
-      std::cout << "before filling ws-in" << std::endl;
 
       ForEachOutgoingEdge(
           stream, dev_frag, ws_in,
@@ -342,7 +341,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           },
           ctx.lb);
-      std::cout << "after filling ws-in" << std::endl;
+      stream.Sync();
+      std::cout << "filling" << std::endl;
 
       // Sort destinations with segmented sort
       {
@@ -377,6 +377,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
       }
+      stream.Sync();
+      std::cout << "sort" << std::endl;
 
       {
         WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
@@ -460,6 +462,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               dev::atomicAdd64(&d_tricnt[u], triangle_count);
             });
       }
+
+      stream.Sync();
+      std::cout << "couting" << std::endl;
 
       {
         WorkSourceRange<vertex_t> ws_in(*ov.begin(), ov.size());
