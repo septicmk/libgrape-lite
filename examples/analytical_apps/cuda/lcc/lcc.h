@@ -403,7 +403,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                                 begin < d_filling_offset[idx]; begin++) {
                              d_keys_out[tmp++] = d_keys_in[begin];
                            }
-                           assert(tmp <= d_dompact_offset[idx + 1])
+                           assert(tmp <= d_compact_offset[idx + 1])
                          });
         stream.Sync();
         ctx.col_indices.resize(valid_esize);
