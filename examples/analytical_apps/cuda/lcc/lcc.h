@@ -60,6 +60,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
     tricnt.H2D();
 
     row_offset.resize(vertices.size() + 1, 0);
+    compact_row_offset.resize(vertices.size() + 1, 0);
 
     size_t n_edges = 0;
     size_t n_vertices = 0;
@@ -100,6 +101,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
   VertexArray<size_t, vid_t> filling_offset;
   VertexArray<size_t, vid_t> tricnt;
   thrust::device_vector<size_t> row_offset;
+  thrust::device_vector<size_t> compact_row_offset;
   thrust::device_vector<msg_t> col_indices;
   thrust::device_vector<msg_t> col_sorted_indices;
   int stage{};
@@ -339,7 +341,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               // TODO(mengke): replace it with ForEachOutgoingEdge
               size_t length = (d_filling_offset[idx] - d_row_offset[idx]);
               assert(d_filling_offset[idx] >= d_row_offset[idx] &&
-                     d_filling_offset[idx] < d_row_offset[idx + 1])
+                     d_filling_offset[idx] < d_row_offset[idx + 1]);
                   d_valid_out_degree[u] = length;
             });
         void* d_temp_storage = nullptr;
