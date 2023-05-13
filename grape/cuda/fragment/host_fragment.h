@@ -383,7 +383,11 @@ class HostFragment
             << " ienum: " << ie_.edge_num() << " oenum: " << oe_.edge_num();
   }
 
-  void OffloadTopology() {
+  void OffloadTopology const () {
+    std::const_cast<HostFragment*>(this) -> __OffloadTopology__();
+  }
+
+  void __OffloadTopology__() {
     d_ie_.resize(0);
     d_ie_.shrink_to_fit();
 
@@ -391,7 +395,11 @@ class HostFragment
     d_oe_.shrink_to_fit();
   }
 
-  void ReloadTopology() {
+  void ReloadTopology const () {
+    std::const_cast<HostFragment*>(this) -> __ReloadTopology__();
+  }
+
+  void __ReloadTopology__() {
     if (load_strategy == grape::LoadStrategy::kOnlyIn ||
         load_strategy == grape::LoadStrategy::kBothOutIn) {
       d_ie_.resize(ie_.edge_num());
@@ -600,7 +608,7 @@ class HostFragment
   std::shared_ptr<dev_vertex_map_t> d_vm_ptr_;
   std::shared_ptr<CUDASTL::HashMap<VID_T, VID_T>> d_ovg2l_;
   thrust::device_vector<VID_T> d_ovgid_;
-  thrust::device_vector<nbr_t> d_ie_, d_oe_;
+  mutable thrust::device_vector<nbr_t> d_ie_, d_oe_;
 
   thrust::device_vector<nbr_t*> d_ieoffset_, d_oeoffset_;
   thrust::device_vector<VDATA_T> d_vdata_;
