@@ -342,7 +342,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               size_t length = (d_filling_offset[idx] - d_row_offset[idx]);
               assert(d_filling_offset[idx] >= d_row_offset[idx] &&
                      d_filling_offset[idx] < d_row_offset[idx + 1]);
-                  d_valid_out_degree[u] = length;
+              d_valid_out_degree[u] = length;
             });
         void* d_temp_storage = nullptr;
         size_t* ans = nullptr;
@@ -360,6 +360,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                                    cudaMemcpyDeviceToHost,
                                    stream.cuda_stream()));
         stream.Sync();
+        CHECK_CUDA(cudaFree(ans));
       }
       std::cout << "n_valid_edges: " << valid_esize << std::endl;
 
@@ -368,9 +369,21 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
       ReportMemroyUsage("Resize");
 
-      {
-        CHECK_CUDA(cudaFree(ans));
+      {  // compact col index
+        size_t* d_compact_row_offset =
+            thrust::raw_pointer_cast(ctx.compact_row_offset.data());
+        auto size = vertices.size();
+
+        CHECK_CUDA(cub::DeviceScan::InclusiveSum(
+            d_temp_storage, temp_storage_bytes, d_valid_out_degree.data(),
+            d_compact_row_offset + 1, size, stream.cuda_stream()));
+        CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+        CHECK_CUDA(cub::DeviceScan::InclusiveSum(
+            d_temp_storage, temp_storage_bytes, d_valid_out_degree.data(),
+            d_compact_row_offset + 1, size, stream.cuda_stream()));
+        CHECK_CUDA(cudaFree(d_temp_storage));
         valid_out_degree.Clear();
+
       }
 
       // Sort destinations with segmented sort
