@@ -387,7 +387,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             d_compact_row_offset + 1, size, stream.cuda_stream()));
         CHECK_CUDA(cudaFree(d_temp_storage));
 
-        auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
         auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
         auto* d_compact_offset =
