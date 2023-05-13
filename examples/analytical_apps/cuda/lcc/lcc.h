@@ -324,19 +324,12 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           });
 
-      // Make space for Triangle counting;
-      ReportMemroyUsage("Before");
+      // Make space;
       frag.OffloadTopology();
-      ReportMemroyUsage("After");
 
       auto size = vertices.size();
       size_t valid_esize = 0;
-      auto n_filtered_edges = ctx.row_offset[size];
-      ctx.col_sorted_indices.resize(n_filtered_edges);
-      std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
-      ReportMemroyUsage("Resize");
-
-      {
+      {  // cacluate valid edges
         auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
         auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
@@ -345,7 +338,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
               // TODO(mengke): replace it with ForEachOutgoingEdge
               size_t length = (d_filling_offset[idx] - d_row_offset[idx]);
-              d_valid_out_degree[u] = length;
+              assert(d_filling_offset[idx] >= d_row_offset[idx] &&
+                     d_filling_offset[idx] < d_row_offset[idx + 1])
+                  d_valid_out_degree[u] = length;
             });
         void* d_temp_storage = nullptr;
         size_t* ans = nullptr;
@@ -366,12 +361,22 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       }
       std::cout << "n_valid_edges: " << valid_esize << std::endl;
 
+      auto n_filtered_edges = ctx.row_offset[size];
+      ctx.col_sorted_indices.resize(valid_esize);
+      std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
+      ReportMemroyUsage("Resize");
+
+      {
+        CHECK_CUDA(cudaFree(ans));
+        valid_out_degree.Clear();
+      }
+
       // Sort destinations with segmented sort
       {
         WorkSourceRange<vertex_t> ws_in(*vertices.begin(), vertices.size());
         size_t n_vertices = vertices.size();
-        //size_t n_edges = ctx.col_sorted_indices.size();
-        size_t num_items = valid_esize;//n_edges;
+        // size_t n_edges = ctx.col_sorted_indices.size();
+        size_t num_items = valid_esize;  // n_edges;
         size_t num_segments = n_vertices;
         auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
