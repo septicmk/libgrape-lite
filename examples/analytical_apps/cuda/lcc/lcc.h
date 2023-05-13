@@ -341,7 +341,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               // TODO(mengke): replace it with ForEachOutgoingEdge
               size_t length = (d_filling_offset[idx] - d_row_offset[idx]);
               assert(d_filling_offset[idx] >= d_row_offset[idx] &&
-                     d_filling_offset[idx] < d_row_offset[idx + 1]);
+                     d_filling_offset[idx] <= d_row_offset[idx + 1]);
               d_valid_out_degree[u] = length;
             });
         void* d_temp_storage = nullptr;
@@ -386,7 +386,29 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             d_temp_storage, temp_storage_bytes, d_valid_out_degree.data(),
             d_compact_row_offset + 1, size, stream.cuda_stream()));
         CHECK_CUDA(cudaFree(d_temp_storage));
+
+        auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
+        auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
+        auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
+        auto* d_compact_offset =
+            thrust::raw_pointer_cast(ctx.compact_row_offset.data());
+        auto* d_keys_in = thrust::raw_pointer_cast(ctx.col_indices.data());
+        auto* d_keys_out =
+            thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
+        WorkSourceRange<vertex_t> ws_in(*vertices.begin(), vertices.size());
+        ForEachWithIndex(stream, ws_in,
+                         [=] __device__(uint32_t idx, vertex_t u) mutable {
+                           // TODO(mengke): replace it with ForEachOutgoingEdge
+                           size_t tmp = d_compact_offset[idx];
+                           for (auto begin = d_offsets[idx];
+                                begin < d_filling_offset[idx]; begin++) {
+                             d_keys_out[tmp++] = d_keys_in[begin])
+                           }
+                         });
         stream.Sync();
+        ctx.col_indices.resize(valid_esize);
+        ctx.col_indices.shrink_to_fit();
+        ReportMemroyUsage("compact");
       }
 
       // Sort destinations with segmented sort
@@ -396,8 +418,11 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         // size_t n_edges = ctx.col_sorted_indices.size();
         size_t num_items = valid_esize;  // n_edges;
         size_t num_segments = n_vertices;
-        auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
-        auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
+        // auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
+        // auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
+        auto* d_offsets =
+            thrust::raw_pointer_cast(ctx.compact_row_offset.data());
+        auto* d_filling_offset = d_offsets + 1;
         auto* d_keys_in = thrust::raw_pointer_cast(ctx.col_indices.data());
         auto* d_keys_out =
             thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
@@ -405,7 +430,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 #ifdef PROFILING
         auto begin = grape::GetCurrentTime();
 #endif
-        cub::DoubleBuffer<msg_t> d_keys(d_keys_in, d_keys_out);
+        cub::DoubleBuffer<msg_t> d_keys(d_keys_out, d_keys_in);
         // Determine temporary device storage requirements
         void* d_temp_storage = nullptr;
         size_t temp_storage_bytes = 0;
