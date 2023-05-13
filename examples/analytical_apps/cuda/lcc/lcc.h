@@ -348,7 +348,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               d_valid_out_degree[idx] = length;
             });
         void* d_temp_storage = nullptr;
-        size_t* ans = nullptr CHECK_CUDA(cudaMalloc(&ans, sizeof(size_t)));
+        size_t* ans = nullptr;
+        CHECK_CUDA(cudaMalloc(&ans, sizeof(size_t)));
         size_t temp_storage_bytes = 0;
         CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
                                           d_valid_out_degree.data(), ans, size,
