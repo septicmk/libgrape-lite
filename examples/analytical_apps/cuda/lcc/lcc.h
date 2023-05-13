@@ -362,12 +362,12 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         stream.Sync();
         CHECK_CUDA(cudaFree(ans));
       }
-      std::cout << "n_valid_edges: " << valid_esize << std::endl;
+      //std::cout << "n_valid_edges: " << valid_esize << std::endl;
 
       auto n_filtered_edges = ctx.row_offset[size];
       ctx.col_sorted_indices.resize(valid_esize);
-      std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
-      ReportMemroyUsage("Resize");
+      //std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
+      //ReportMemroyUsage("Resize");
 
       {  // compact col index
         size_t* d_compact_row_offset =
@@ -409,7 +409,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         stream.Sync();
         ctx.col_indices.resize(valid_esize);
         ctx.col_indices.shrink_to_fit();
-        ReportMemroyUsage("compact");
+        //ReportMemroyUsage("compact");
       }
 
       // Sort destinations with segmented sort
@@ -451,7 +451,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
         sorted_col = d_keys.Current();
-        ReportMemroyUsage("Here");
+        //ReportMemroyUsage("Here");
       }
 
       {
