@@ -175,12 +175,15 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             vertex_t v = nbr.get_neighbor();
             msg_t u_degree = d_global_degree[u];
             msg_t v_degree = d_global_degree[v];
-            vid_t u_gid = dev_frag.GetInnerVertexGid(u);
-            vid_t v_gid = dev_frag.Vertex2Gid(v);
 
-            if ((u_degree > v_degree) ||
-                (u_degree == v_degree && u_gid > v_gid)) {
+            if (u_degree > v_degree) {
               atomicAdd(&d_valid_out_degree[u], 1);
+            } else {
+              vid_t u_gid = dev_frag.GetInnerVertexGid(u);
+              vid_t v_gid = dev_frag.Vertex2Gid(v);
+              if ((u_degree == v_degree && u_gid > v_gid)) {
+                atomicAdd(&d_valid_out_degree[u], 1);
+              }
             }
           },
           ctx.lb);
@@ -243,8 +246,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             if ((u_degree > v_degree) ||
                 (u_degree == v_degree && u_gid > v_gid)) {
               auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
-              //d_col_indices[pos] = v.GetValue();
-              //d_msg_col_indices[pos] = v_gid;
+              // d_col_indices[pos] = v.GetValue();
+              // d_msg_col_indices[pos] = v_gid;
               d_col_indices[pos] = v.GetValue();
             }
           },
@@ -258,7 +261,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(0, length, LCC_M);
                  begin++) {
-              //msg_t v_gid = d_msg_col_indices[begin];
+              // msg_t v_gid = d_msg_col_indices[begin];
               msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
 
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
@@ -266,7 +269,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
 
       stream.Sync();
-      //ctx.filling_offset.Init(vertices, 0);
+      // ctx.filling_offset.Init(vertices, 0);
       messages.ForceContinue();
     } else if (ctx.stage >= 2 && ctx.stage < 1 + LCC_M) {
       int K = ctx.stage - 1;
@@ -296,7 +299,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
                  begin < d_row_offset[idx] + LCC_CHUNK_SIZE(K, length, LCC_M);
                  begin++) {
-              //msg_t v_gid = d_msg_col_indices[begin];
+              // msg_t v_gid = d_msg_col_indices[begin];
               msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
@@ -308,6 +311,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
+      msg_t* sorted_col = NULL;
 
       messages.template ParallelProcess<dev_fragment_t, msg_t>(
           dev_frag, [=] __device__(vertex_t u, msg_t v_gid) mutable {
@@ -340,22 +344,24 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 #ifdef PROFILING
         auto begin = grape::GetCurrentTime();
 #endif
+        cub::DoubleBuffer<msg_t> d_keys(d_keys_in, d_keys_out);
         // Determine temporary device storage requirements
         void* d_temp_storage = nullptr;
         size_t temp_storage_bytes = 0;
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-            d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out,
+            d_temp_storage, temp_storage_bytes, d_keys,
             num_items, num_segments, d_offsets, d_filling_offset));
         // Allocate temporary storage
         CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
         // Run sorting operation
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-            d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out,
+            d_temp_storage, temp_storage_bytes, d_keys,
             num_items, num_segments, d_offsets, d_filling_offset));
         CHECK_CUDA(cudaFree(d_temp_storage));
 #ifdef PROFILING
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
+        sorted_col = d_keys.Current();
       }
 
       {
@@ -363,8 +369,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
         auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
-        auto* d_col_indices =
-            thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
+        auto* d_col_indices = sorted_col;
+            //thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
 
         // Calculate intersection
         ForEachWithIndex(
@@ -440,7 +446,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               dev::atomicAdd64(&d_tricnt[u], triangle_count);
             });
       }
-
 
       {
         WorkSourceRange<vertex_t> ws_in(*ov.begin(), ov.size());
