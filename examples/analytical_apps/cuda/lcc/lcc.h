@@ -345,7 +345,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
               // TODO(mengke): replace it with ForEachOutgoingEdge
               size_t length = (d_filling_offset[idx] - d_row_offset[idx]);
-              d_valid_out_degree[idx] = length;
+              d_valid_out_degree[u] = length;
             });
         void* d_temp_storage = nullptr;
         size_t* ans = nullptr;
