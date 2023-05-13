@@ -325,7 +325,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
       
       // Make space for Triangle counting;
+      ReportMemroyUsage();
       frag.OffloadTopology();
+      ReportMemroyUsage();
 
       auto size = vertices.size();
       auto n_filtered_edges = ctx.row_offset[size];

@@ -61,6 +61,18 @@ inline void KernelSizing(int& block_num, int& block_size, size_t work_size) {
                static_cast<int>((work_size + block_size - 1) / block_size));
 }
 
+inline void ReportMemroyUsage() {
+  size_t free_byte, total_byte;
+  double giga = (1ul) << 30;
+  cudaError_t error_id = cudaMemGetInfo(&free_byte, &total_byte);
+  if (error_id != cudaSuccess) {
+    printf("cudaMemGetInfo() failed: %s\n", cudaGetErrorString(error_id));
+    return;
+  }
+  printf("Global Memory[Total, Free] (Gb): [%.3f, %.3f]\n",
+         total_byte / giga, free_byte / giga);
+}
+
 }  // namespace cuda
 }  // namespace grape
 
