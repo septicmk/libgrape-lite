@@ -385,6 +385,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         CHECK_CUDA(cub::DeviceScan::InclusiveSum(
             d_temp_storage, temp_storage_bytes, d_valid_out_degree.data(),
             d_compact_row_offset + 1, size, stream.cuda_stream()));
+        stream.Sync();
         CHECK_CUDA(cudaFree(d_temp_storage));
 
         auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
@@ -434,6 +435,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         // Determine temporary device storage requirements
         void* d_temp_storage = nullptr;
         size_t temp_storage_bytes = 0;
+        stream.Sync();
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
             d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
             d_offsets, d_filling_offset));
@@ -443,6 +445,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
             d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
             d_offsets, d_filling_offset));
+        stream.Sync();
         CHECK_CUDA(cudaFree(d_temp_storage));
 #ifdef PROFILING
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
@@ -456,7 +459,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
         // auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
         // auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
-        auto* d_offsets =
+        auto* d_row_offset =
             thrust::raw_pointer_cast(ctx.compact_row_offset.data());
         auto* d_filling_offset = d_offsets + 1;
         auto* d_col_indices = sorted_col;
