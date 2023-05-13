@@ -461,7 +461,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         // auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
         auto* d_row_offset =
             thrust::raw_pointer_cast(ctx.compact_row_offset.data());
-        auto* d_filling_offset = d_offsets + 1;
+        auto* d_filling_offset = d_row_offset + 1;
         auto* d_col_indices = sorted_col;
         // thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
 
