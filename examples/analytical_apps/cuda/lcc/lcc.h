@@ -414,9 +414,11 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                          });
         stream.Sync();
 
-        ReportMemroyUsage("before resize col_indices topology.");
-        ctx.col_indices.resize(valid_esize);
+        ReportMemroyUsage("before clear col_indices topology.");
+        ctx.col_indices.clear();
         ctx.col_indices.shrink_to_fit();
+        ReportMemroyUsage("After clear col_indices topology.");
+        ctx.col_indices.resize(valid_esize);
         ReportMemroyUsage("After resize col_indices topology.");
         // ReportMemroyUsage("compact");
       }
