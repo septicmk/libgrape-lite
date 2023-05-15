@@ -161,6 +161,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     auto d_tricnt = ctx.tricnt.DeviceObject();
     auto d_mm = messages.DeviceObject();
 
+    ReportMemroyUsage("Before Exchange edges.");
     if (ctx.stage == 0) {
       ctx.stage = 1;
       // Get degree of outer vertices
@@ -228,7 +229,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       LOG(INFO) << "Filtered edges: " << n_filtered_edges;
 #endif
 
+      ReportMemroyUsage("Before temporary col_indices edges");
       ctx.col_indices.resize(n_filtered_edges);
+      ReportMemroyUsage("After temporary col_indicdes edges");
 
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
       auto* d_msg_col_indices =
@@ -327,7 +330,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
 
       // Make space;
+      ReportMemroyUsage("Before Offload graph topology.");
       frag.OffloadTopology();
+      ReportMemroyUsage("After Offload graph topology.");
 
       auto size = vertices.size();
       size_t valid_esize = 0;
@@ -364,8 +369,10 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       }
       //std::cout << "n_valid_edges: " << valid_esize << std::endl;
 
+      ReportMemroyUsage("Before resize col_sorted_indices topology.");
       auto n_filtered_edges = ctx.row_offset[size];
       ctx.col_sorted_indices.resize(valid_esize);
+      ReportMemroyUsage("After resize col_sorted_indices topology.");
       //std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
       //ReportMemroyUsage("Resize");
 
@@ -407,8 +414,10 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                            assert(tmp <= d_compact_offset[idx + 1]);
                          });
         stream.Sync();
+        ReportMemroyUsage("before resize col_indices topology.");
         ctx.col_indices.resize(valid_esize);
         ctx.col_indices.shrink_to_fit();
+        ReportMemroyUsage("After resize col_indices topology.");
         //ReportMemroyUsage("compact");
       }
 
@@ -436,6 +445,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         void* d_temp_storage = nullptr;
         size_t temp_storage_bytes = 0;
         stream.Sync();
+        ReportMemroyUsage("Before segmented sort.");
         CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
             d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
             d_offsets, d_filling_offset));
@@ -447,11 +457,11 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             d_offsets, d_filling_offset));
         stream.Sync();
         CHECK_CUDA(cudaFree(d_temp_storage));
+        ReportMemroyUsage("After segmented sort.");
 #ifdef PROFILING
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
         sorted_col = d_keys.Current();
-        //ReportMemroyUsage("Here");
       }
 
       {
