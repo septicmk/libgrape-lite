@@ -367,18 +367,10 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         stream.Sync();
         CHECK_CUDA(cudaFree(ans));
       }
-      //std::cout << "n_valid_edges: " << valid_esize << std::endl;
+      // std::cout << "n_valid_edges: " << valid_esize << std::endl;
 
-      ReportMemroyUsage("Before clear col_sorted_indices topology.");
-      auto n_filtered_edges = ctx.row_offset[size];
-      ctx.col_sorted_indices.clear();
-      ctx.col_sorted_indices.shrink_to_fit();
-      ReportMemroyUsage("After clear col_sorted_indices topology.");
-      ctx.col_sorted_indices.resize(valid_esize);
-      ReportMemroyUsage("After resize col_sorted_indices topology.");
-      //std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
-      //ReportMemroyUsage("Resize");
-
+      // std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
+      // ReportMemroyUsage("Resize");
       {  // compact col index
         size_t* d_compact_row_offset =
             thrust::raw_pointer_cast(ctx.compact_row_offset.data());
@@ -397,6 +389,10 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             d_compact_row_offset + 1, size, stream.cuda_stream()));
         stream.Sync();
         CHECK_CUDA(cudaFree(d_temp_storage));
+
+        ReportMemroyUsage("Before resize col_sorted_indices topology.");
+        ctx.col_sorted_indices.resize(valid_esize);
+        ReportMemroyUsage("After resize col_sorted_indices topology.");
 
         auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
@@ -417,11 +413,12 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                            assert(tmp <= d_compact_offset[idx + 1]);
                          });
         stream.Sync();
+
         ReportMemroyUsage("before resize col_indices topology.");
         ctx.col_indices.resize(valid_esize);
         ctx.col_indices.shrink_to_fit();
         ReportMemroyUsage("After resize col_indices topology.");
-        //ReportMemroyUsage("compact");
+        // ReportMemroyUsage("compact");
       }
 
       // Sort destinations with segmented sort
