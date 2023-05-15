@@ -161,8 +161,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     auto d_tricnt = ctx.tricnt.DeviceObject();
     auto d_mm = messages.DeviceObject();
 
-    ReportMemroyUsage("Before Exchange edges.");
     if (ctx.stage == 0) {
+      ReportMemroyUsage("Before Exchange edges.");
       ctx.stage = 1;
       // Get degree of outer vertices
       messages.template ParallelProcess<dev_fragment_t, msg_t>(
@@ -369,8 +369,11 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       }
       //std::cout << "n_valid_edges: " << valid_esize << std::endl;
 
-      ReportMemroyUsage("Before resize col_sorted_indices topology.");
+      ReportMemroyUsage("Before clear col_sorted_indices topology.");
       auto n_filtered_edges = ctx.row_offset[size];
+      ctx.col_sorted_indices.clear();
+      ctx.col_sorted_indices.shrink_to_fit();
+      ReportMemroyUsage("After clear col_sorted_indices topology.");
       ctx.col_sorted_indices.resize(valid_esize);
       ReportMemroyUsage("After resize col_sorted_indices topology.");
       //std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
