@@ -82,6 +82,14 @@ abstract public class LibgrapeJob {
 		args.add("--jobid");
 		args.add(jobId);
 
+    String serialization = config.getString("platform.libgrape.serialization");
+    if(serialization) {
+      args.add("--deserialize");
+      args.add("true");
+      args.add("--serialization_prefix");
+      args.add(serialization);
+    }
+
 		String argsString = "";
 
 		for (String arg : args) {
