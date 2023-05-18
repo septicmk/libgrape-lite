@@ -68,7 +68,7 @@ if [[ ! -d "config" ]]; then
 fi
 
 # clean up the binaries
-rm -rf ./bin/standard || true
+#rm -rf ./bin/standard || true
 
 # run ldbc benchmarking suite.
 ./bin/sh/run-benchmark.sh | tee ${LOG_FILE}
