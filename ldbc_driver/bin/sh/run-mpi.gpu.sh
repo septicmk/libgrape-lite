@@ -28,7 +28,7 @@ echo ${@:5}
 # the binary is sync to ${HOME}/bin/standard/run_app
 # switch to $HOME before mpirun
 pushd ${HOME}
-mpirun -np 8 ${@:5} &
+mpirun -np 8 --host $1 ${@:5} &
 popd
 
 echo $! > $LOG_PATH/executable.pid
