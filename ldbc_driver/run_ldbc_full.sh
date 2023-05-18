@@ -4,8 +4,9 @@ set -ex
 # we use a moderate size graph as example, see full list of dataset at https://graphalytics.org/datasets
 source $1/eval_base.sh
 GRAPH_NAME="datagen-8_5-fb"
-SERIALIZATION=${serial_prefix};
+SERIALIZATION=${serial_prefix}
 SERIALIZATIONSSSP=${serial_sssp_prefix}
+GPUENABLED="true"
 
 # environment variables, change them if needed.
 LIBGRAPE_HOME="$( cd "$(dirname "$0")/.." >/dev/null 2>&1 ; pwd -P )"
@@ -54,6 +55,7 @@ if [[ ! -d "config" ]]; then
     cp -r ./config-template ./config
 
     # use '#' rather than '/' to avoid potential '/' in ${LIBGRAPE_HOME}
+    sed -i'.bak' '/^platform.run.gpu.enabled/ s#$# '"${GPUENABLED}"'#' config/platform.properties
     sed -i'.bak' '/^platform.libgrape.serialization/ s#$# '"${SERIALIZATION}"'#' config/platform.properties
     sed -i'.bak' '/^platform.libgrape.serializationSSSP/ s#$# '"${SERIALIZATION}"'#' config/platform.properties
     sed -i'.bak' '/^platform.libgrape.home/ s#$# '"${LIBGRAPE_HOME}"'#' config/platform.properties
