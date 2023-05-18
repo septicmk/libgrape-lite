@@ -94,7 +94,7 @@ abstract public class LibgrapeJob {
 
     String serialization = config.getString("platform.libgrape.serialization");
     String serializationSSSP = config.getString("platform.libgrape.serializationSSSP");
-    if(serialization.isEmpty()) {
+    if(!serialization.isEmpty()) {
       args.add("--deserialize");
       args.add("true");
       args.add("--serialization_prefix");
