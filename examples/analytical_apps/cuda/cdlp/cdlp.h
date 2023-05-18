@@ -57,11 +57,15 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
     labels.Init(vertices);
     new_label.Init(iv, thrust::make_pair(0, false));
 
+    ReportMemroyUsage("Before resize row_offset");
     h_row_offset.resize(iv.size() + 1);
     d_row_offset.resize(iv.size() + 1);
+    ReportMemroyUsage("After resize row_offset");
 
+    ReportMemroyUsage("Before Cache eges.");
     h_col_indices.resize(oenum);
     d_col_indices.resize(oenum);
+    ReportMemroyUsage("After Cache eges.");
 
     for (auto v : iv) {
       labels[v] = frag.GetInnerVertexId(v);
@@ -78,7 +82,7 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
 #endif
 
     // messages.InitBuffer(100 * 1024 * 1024, 100 * 1024 * 1024);
-    messages.InitBuffer( //N.B. pair padding
+    messages.InitBuffer(  // N.B. pair padding
         (2 * sizeof(thrust::pair<vid_t, label_t>)) * iv.size(),
         (2 * sizeof(thrust::pair<vid_t, label_t>)) * ov.size());
   }
@@ -190,6 +194,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     {
       // TODO(mengke): A hybrid segmented sort. We may sort high-degree vertices
       // on GPU, sort relative low-degree vertices on CPU
+      auto begin = grape::GetCurrentTime();
 #ifdef PROFILING
       auto begin = grape::GetCurrentTime();
 #endif
@@ -207,6 +212,8 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
 #ifdef PROFILING
       VLOG(1) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
+      std::cout << "Sort time: " << grape::GetCurrentTime() - begin
+                << std::endl;
     }
 
     CHECK_CUDA(
@@ -302,6 +309,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     auto* p_d_row_offset = thrust::raw_pointer_cast(ctx.d_row_offset.data());
     auto size = iv.size();
 
+    ReportMemroyUsage("Before inclusive sum.");
     CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
                                              d_out_degree, p_d_row_offset + 1,
                                              size, stream.cuda_stream()));
@@ -316,6 +324,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
                         thrust::raw_pointer_cast(ctx.d_row_offset.data()),
                         sizeof(size_t) * ctx.h_row_offset.size(),
                         cudaMemcpyDeviceToHost, stream.cuda_stream()));
+    ReportMemroyUsage("After inclusive sum.");
 
     PropagateLabel(frag, ctx, messages);
   }

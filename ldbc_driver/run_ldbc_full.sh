@@ -1,17 +1,8 @@
 #!/bin/bash
 set -ex
 
-# normal or ci mode
-MODE="ci"
-
 # we use a moderate size graph as example, see full list of dataset at https://graphalytics.org/datasets
-GRAPH_NAME="datagen-7_6-fb"
-
-# if in CI mode, use a smaller graph
-if [[ $1 == "ci" ]]; then
-    MODE="ci"
-    GRAPH_NAME="p2p-31"
-fi
+GRAPH_NAME="datagen-8_5-fb"
 
 # environment variables, change them if needed.
 LIBGRAPE_HOME="$( cd "$(dirname "$0")/.." >/dev/null 2>&1 ; pwd -P )"
@@ -42,16 +33,16 @@ fi
 pushd ${WORKSPACE}
 
 # download data.
-if [[ ! -d "graphs" ]]; then
-    mkdir ./graphs
-    if [[ ${MODE} == "normal" ]]; then
-        # mirrored from https://graphalytics.org/datasets to speed up.
-        wget https://libgrape-lite.oss-cn-zhangjiakou.aliyuncs.com/${GRAPH_NAME}.zip
-        unzip -j ${GRAPH_NAME}.zip -d ./graphs
-    elif [[ ${MODE} == "ci" ]]; then
-        cp ${LIBGRAPE_HOME}/dataset/* ./graphs
-    fi
-fi
+#if [[ ! -d "graphs" ]]; then
+#    mkdir ./graphs
+#    if [[ ${MODE} == "normal" ]]; then
+#        # mirrored from https://graphalytics.org/datasets to speed up.
+#        wget https://libgrape-lite.oss-cn-zhangjiakou.aliyuncs.com/${GRAPH_NAME}.zip
+#        unzip -j ${GRAPH_NAME}.zip -d ./graphs
+#    elif [[ ${MODE} == "ci" ]]; then
+#        cp ${LIBGRAPE_HOME}/dataset/* ./graphs
+#    fi
+#fi
 
 pushd graphalytics-1.0.0-libgrape-0.3-SNAPSHOT
 
@@ -60,6 +51,8 @@ if [[ ! -d "config" ]]; then
     cp -r ./config-template ./config
 
     # use '#' rather than '/' to avoid potential '/' in ${LIBGRAPE_HOME}
+    sed -i'.bak' '/^platform.libgrape.serialization/ s#$# '"${SERIALIZATION}"'#' config/platform.properties
+    sed -i'.bak' '/^platform.libgrape.serializationSSSP/ s#$# '"${SERIALIZATION}"'#' config/platform.properties
     sed -i'.bak' '/^platform.libgrape.home/ s#$# '"${LIBGRAPE_HOME}"'#' config/platform.properties
     sed -i'.bak' '/^platform.libgrape.nodes/ s/$/ '"${HOST_NODES}"'/' config/platform.properties
     sed -i'.bak' -e '/^benchmark.executor.port/ s/$/ '"${EXECUTOR_PORT}"'/' -e '/^benchmark.runner.port/ s/$/ '"${RUNNER_PORT}"'/' config/benchmark.properties
