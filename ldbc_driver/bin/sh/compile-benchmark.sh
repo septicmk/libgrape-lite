@@ -36,7 +36,7 @@ if [ -z LIBGRAPE_HOME ]; then
 fi
 GRANULA_ENABLED=$(grep -E "^benchmark.run.granula.enabled[	 ]*[:=]" $config/granula.properties | sed 's/benchmark.run.granula.enabled[	 ]*[:=][	 ]*\([^	 ]*\).*/\1/g' | head -n 1)
 
-GPU_ENABLED=$(grep -E "^platform.run.granula.enabled[	 ]*[:=]" $config/platform.properties | sed 's/platform.run.granula.enabled[	 ]*[:=][	 ]*\([^	 ]*\).*/\1/g' | head -n 1)
+GPU_ENABLED=$(grep -E "^platform.run.gpu.enabled[	 ]*[:=]" $config/platform.properties | sed 's/platform.run.gpu.enabled[	 ]*[:=][	 ]*\([^	 ]*\).*/\1/g' | head -n 1)
 
 # Build binaries
 mkdir -p bin/standard
