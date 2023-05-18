@@ -94,7 +94,6 @@ abstract public class LibgrapeJob {
 
     String serialization = config.getString("platform.libgrape.serialization");
     String serializationSSSP = config.getString("platform.libgrape.serializationSSSP");
-    Srting graphName =
     if(serialization) {
       args.add("--deserialize");
       args.add("true");

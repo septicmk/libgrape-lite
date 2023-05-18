@@ -36,10 +36,15 @@ if [ -z LIBGRAPE_HOME ]; then
 fi
 GRANULA_ENABLED=$(grep -E "^benchmark.run.granula.enabled[	 ]*[:=]" $config/granula.properties | sed 's/benchmark.run.granula.enabled[	 ]*[:=][	 ]*\([^	 ]*\).*/\1/g' | head -n 1)
 
+GPU_ENABLED=$(grep -E "^platform.run.granula.enabled[	 ]*[:=]" $config/platform.properties | sed 's/platform.run.granula.enabled[	 ]*[:=][	 ]*\([^	 ]*\).*/\1/g' | head -n 1)
 
 # Build binaries
 mkdir -p bin/standard
 (cd bin/standard && cmake -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release ${LIBGRAPE_HOME} && make analytical_apps)
+
+if [ "$GPU_ENABLED" = "true" ] ; then
+  (cd bin/standard && cmake -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release ${LIBGRAPE_HOME} && make gpu_analytical_apps)
+fi
 
 if [ "$GRANULA_ENABLED" = "true" ] ; then
  mkdir -p bin/granula
