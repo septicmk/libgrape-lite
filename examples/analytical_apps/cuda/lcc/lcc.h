@@ -22,7 +22,7 @@ limitations under the License.
 #include "cuda/app_config.h"
 #include "grape/grape.h"
 
-#define LCC_M 16
+#define LCC_M 1
 #define LCC_CHUNK_SIZE(I, N, m) (((I) < (N) % (m)) + (N) / (m))
 #define LCC_CHUNK_START(I, N, m) \
   (((I) < ((N) % (m)) ? (I) : ((N) % (m))) + (I) * ((N) / (m)))
