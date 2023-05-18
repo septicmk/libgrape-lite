@@ -23,7 +23,7 @@ limitations under the License.
 #include "grape/grape.h"
 
 #define LCC_M 2
-#define LCC_CHUNK_SIZE(I, N, m) (((I) < (N) % (m)) + (N) / (m))
+#define LCC_CHUNK_SIZE(I, N, m) (((I) < ((N) % (m))) + (N) / (m))
 #define LCC_CHUNK_START(I, N, m) \
   (((I) < ((N) % (m)) ? (I) : ((N) % (m))) + (I) * ((N) / (m)))
 
