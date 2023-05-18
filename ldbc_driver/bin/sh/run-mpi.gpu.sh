@@ -28,7 +28,7 @@ echo ${@:5}
 # the binary is sync to ${HOME}/bin/standard/run_app
 # switch to $HOME before mpirun
 pushd ${HOME}
-mpirun --allow-run-as-root -np 8 &
+mpirun -np 8 ${@:5} &
 popd
 
 echo $! > $LOG_PATH/executable.pid

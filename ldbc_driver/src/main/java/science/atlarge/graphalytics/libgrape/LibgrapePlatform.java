@@ -104,7 +104,7 @@ public class LibgrapePlatform implements GranulaAwarePlatform {
 		LIBGRAPE_BINARY_NAME = granulaEnabled ? "./bin/granula/run_app": LIBGRAPE_BINARY_NAME;
 
     boolean gpuEnabled = benchmarkConfig.getBoolean(GPU_ENABLE_KEY, false);
-		LIBGRAPE_BINARY_NAME = granulaEnabled ? "./bin/standard/run_cuda_app": LIBGRAPE_BINARY_NAME;
+		LIBGRAPE_BINARY_NAME =  gpuEnabled ? "./bin/standard/run_cuda_app": LIBGRAPE_BINARY_NAME;
 	}
 
 	@Override
