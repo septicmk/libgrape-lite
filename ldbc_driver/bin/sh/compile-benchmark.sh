@@ -40,7 +40,7 @@ GPU_ENABLED=$(grep -E "^platform.run.gpu.enabled[	 ]*[:=]" $config/platform.prop
 
 # Build binaries
 mkdir -p bin/standard
-echo "GPU_ENABLE="$GPU_ENABLED
+echo "GRANULA_ENABLE="$GRANULA_ENABLED
 
 if [ "$GPU_ENABLED" = "true" ] ; then
   (cd bin/standard && cmake -DCMAKE_BUILD_TYPE=Release ${LIBGRAPE_HOME} && make gpu_analytical_apps)
