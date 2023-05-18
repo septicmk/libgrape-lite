@@ -94,11 +94,11 @@ abstract public class LibgrapeJob {
 
     String serialization = config.getString("platform.libgrape.serialization");
     String serializationSSSP = config.getString("platform.libgrape.serializationSSSP");
-    if(serialization) {
+    if(serialization.isEmpty()) {
       args.add("--deserialize");
       args.add("true");
       args.add("--serialization_prefix");
-      if(applicationname == "SSSP"){
+      if(applicationName == "SSSP"){
         args.add(serializationSSSP + "/" + graphName + ".bin");
       } else {
         args.add(serialization + "/" + graphName + ".bin");
