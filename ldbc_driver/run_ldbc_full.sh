@@ -56,7 +56,7 @@ if [[ ! -d "config" ]]; then
 
     # use '#' rather than '/' to avoid potential '/' in ${LIBGRAPE_HOME}
     sed -i'.bak' '/^platform.run.gpu.enabled/ s#$# '"${GPUENABLED}"'#' config/platform.properties
-    sed -i'.bak' '/^platform.libgrape.serialization/ s&$& '"${SERIALIZATION}"'&' config/platform.properties
+    sed -i'.bak' '/^platform.libgrape.serialization / s&$& '"${SERIALIZATION}"'&' config/platform.properties
     sed -i'.bak' '/^platform.libgrape.serializationSSSP/ s&$& '"${SERIALIZATIONSSSP}"'&' config/platform.properties
     sed -i'.bak' '/^platform.libgrape.home/ s#$# '"${LIBGRAPE_HOME}"'#' config/platform.properties
     sed -i'.bak' '/^platform.libgrape.nodes/ s/$/ '"${HOST_NODES}"'/' config/platform.properties
