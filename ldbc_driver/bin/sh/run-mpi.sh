@@ -1,1 +1,1 @@
-./run-mpi.cpu.sh
+run-mpi.gpu.sh

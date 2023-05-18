@@ -2,7 +2,10 @@
 set -ex
 
 # we use a moderate size graph as example, see full list of dataset at https://graphalytics.org/datasets
+source $1/eval_base.sh
 GRAPH_NAME="datagen-8_5-fb"
+SERIALIZATION=${serial_prefix};
+SERIALIZATIONSSSP=${serial_sssp_prefix}
 
 # environment variables, change them if needed.
 LIBGRAPE_HOME="$( cd "$(dirname "$0")/.." >/dev/null 2>&1 ; pwd -P )"

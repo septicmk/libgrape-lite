@@ -36,6 +36,8 @@ abstract public class LibgrapeJob {
 	private File outputFile;
 	private Configuration config;
 	private String logPath;
+  private String graphName;
+  private String applicationName;
 
 	public LibgrapeJob(Configuration config, String verticesPath, String edgesPath, boolean graphDirected, String jobId,
 			String logPath) {
@@ -52,6 +54,14 @@ abstract public class LibgrapeJob {
 	public void setOutputFile(File file) {
 		outputFile = file;
 	}
+
+  public void setGraphName(String graphName) {
+    this.graphName = graphName;
+  }
+
+  public void setApplicationName(String applicationName) {
+    this.applicationName = applicationName;
+  }
 
 	public void run() throws IOException, InterruptedException {
 		List<String> args = new ArrayList<>();
@@ -83,11 +93,17 @@ abstract public class LibgrapeJob {
 		args.add(jobId);
 
     String serialization = config.getString("platform.libgrape.serialization");
+    String serializationSSSP = config.getString("platform.libgrape.serializationSSSP");
+    Srting graphName =
     if(serialization) {
       args.add("--deserialize");
       args.add("true");
       args.add("--serialization_prefix");
-      args.add(serialization);
+      if(applicationname == "SSSP"){
+        args.add(serializationSSSP + "/" + graphName + ".bin");
+      } else {
+        args.add(serialization + "/" + graphName + ".bin");
+      }
     }
 
 		String argsString = "";

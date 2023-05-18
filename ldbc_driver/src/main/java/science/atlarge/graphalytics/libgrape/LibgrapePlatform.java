@@ -81,7 +81,8 @@ public class LibgrapePlatform implements GranulaAwarePlatform {
 	private static final String GRANULA_PROPERTIES_FILE = "granula.properties";
 
 	public static final String GRANULA_ENABLE_KEY = "benchmark.run.granula.enabled";
-	public static String LIBGRAPE_BINARY_NAME = "bin/standard/run_app";
+	//public static String LIBGRAPE_BINARY_NAME = "bin/standard/run_app";
+	public static String LIBGRAPE_BINARY_NAME = "bin/standard/run_cuda_app";
 
 	private Configuration benchmarkConfig;
 
@@ -167,6 +168,9 @@ public class LibgrapePlatform implements GranulaAwarePlatform {
 			default:
 				throw new PlatformExecutionException("Unsupported algorithm");
 		}
+
+    job.setGraphName(benchmarkRun.getGraph().getName());
+    job.setApplicationName(benchmarkRun.getAlgorithm().getName());
 
 		if (benchmarkRunSetup.isOutputRequired()) {
 			Path outputFile = benchmarkRunSetup.getOutputDir().resolve(benchmarkRun.getName());
