@@ -112,8 +112,7 @@ abstract public class LibgrapeJob {
       config.getStringArray("platform.libgrape.HashPartitioner")
     ));
     if(hashGraph.contains(graphName)) {
-      args.add("-segmented_partition");
-      args.add("false");
+      args.add("-segmented_partition=false");
     }
 
 		String argsString = "";
