@@ -264,7 +264,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
             size_t chunk_start =
                 d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
-            size_t chunk_end = chunks_start + LCC_CHUNK_SIZE(0, length, LCC_M);
+            size_t chunk_end = chunk_start + LCC_CHUNK_SIZE(0, length, LCC_M);
 
             for (auto begin = chunk_start; begin < chunk_end; begin++) {
               // msg_t v_gid = d_msg_col_indices[begin];
@@ -302,7 +302,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
             size_t chunk_start =
                 d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
-            size_t chunk_end = chunks_start + LCC_CHUNK_SIZE(K, length, LCC_M);
+            size_t chunk_end = chunk_start + LCC_CHUNK_SIZE(K, length, LCC_M);
 
             for (auto begin = chunk_start; begin < chunk_end; begin++) {
               // msg_t v_gid = d_msg_col_indices[begin];
