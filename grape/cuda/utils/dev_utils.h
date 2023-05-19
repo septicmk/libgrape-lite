@@ -290,15 +290,6 @@ DEV_INLINE bool binary_search_2phase(T* list, T* cache, T key, size_t size) {
 }
 
 template <typename T, typename Y>
-DEV_INLINE size_t intersect_num(T* a, size_t size_a, T* b, size_t size_b,
-                                Y callback) {
-  size_t t_cnt = intersect_num_bs_cache(a, size_a, b, size_b, callback);
-  size_t warp_cnt = warp_reduce(t_cnt);
-  __syncwarp();
-  return warp_cnt;
-}
-
-template <typename T, typename Y>
 DEV_INLINE size_t intersect_num_bs_cache(T* a, size_t size_a, T* b,
                                          size_t size_b, Y callback) {
   if (size_a == 0 || size_b == 0)
@@ -330,6 +321,15 @@ DEV_INLINE size_t intersect_num_bs_cache(T* a, size_t size_a, T* b,
     }
   }
   return num;
+}
+
+template <typename T, typename Y>
+DEV_INLINE size_t intersect_num(T* a, size_t size_a, T* b, size_t size_b,
+                                Y callback) {
+  size_t t_cnt = intersect_num_bs_cache(a, size_a, b, size_b, callback);
+  size_t warp_cnt = warp_reduce(t_cnt);
+  __syncwarp();
+  return warp_cnt;
 }
 
 void WarmupNccl(const grape::CommSpec& comm_spec, const Stream& stream,
