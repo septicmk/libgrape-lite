@@ -22,6 +22,7 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.HashSet;
 
 import org.apache.commons.configuration.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -106,9 +107,9 @@ abstract public class LibgrapeJob {
       }
     }
 
-    Set<String> hashGraph = Set.of(
+    Set<String> hashGraph =  new HashSet<>(Arrays.asList(
       config.getStringArray("platform.libgrape.HashPartitioner")
-    );
+    ));
     if(hashGraph.contains(graphName)) {
       args.add("-segmented_partition");
       args.add("false");
