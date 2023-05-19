@@ -28,13 +28,13 @@ EXECUTOR_PORT="$(awk 'BEGIN{srand();print int(rand()*(30000-2000))+10000 }')"
 RUNNER_PORT="$(awk 'BEGIN{srand();print int(rand()*(50000-30001))+10000 }')"
 
 # check the existance of libgrape_lite.so, build if not exists.
-#if [[ ! -f "${LIBGRAPE_HOME}/build/libgrape_lite.so" ]]; then
-#    mkdir -p "${LIBGRAPE_HOME}/build"
-#    pushd "${LIBGRAPE_HOME}/build"
-#    cmake ..
-#    make
-#    popd
-#fi
+if [[ ! -f "${LIBGRAPE_HOME}/build/libgrape_lite.so" ]]; then
+    mkdir -p "${LIBGRAPE_HOME}/build"
+    pushd "${LIBGRAPE_HOME}/build"
+    cmake ..
+    make
+    popd
+fi
 
 # check the existance of the tar of driver, build with maven if not exists.
 pushd ${LDBC_HOME}
