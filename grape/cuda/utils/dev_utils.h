@@ -291,8 +291,8 @@ DEV_INLINE bool binary_search_2phase(T* list, T* cache, T key, size_t size) {
 
 template <typename T, typename Y>
 DEV_INLINE size_t intersect_num(T* a, size_t size_a, T* b, size_t size_b,
-                                Y d_tricnt) {
-  size_t t_cnt = intersect_num_bs_cache(a, size_a, b, size_b, d_tricnt);
+                                Y callback) {
+  size_t t_cnt = intersect_num_bs_cache(a, size_a, b, size_b, callback);
   size_t warp_cnt = warp_reduce(t_cnt);
   __syncwarp();
   return warp_cnt;
@@ -300,7 +300,7 @@ DEV_INLINE size_t intersect_num(T* a, size_t size_a, T* b, size_t size_b,
 
 template <typename T, typename Y>
 DEV_INLINE size_t intersect_num_bs_cache(T* a, size_t size_a, T* b,
-                                         size_t size_b, Y d_tricnt) {
+                                         size_t size_b, Y callback) {
   if (size_a == 0 || size_b == 0)
     return 0;
   int thread_lane =
@@ -326,7 +326,7 @@ DEV_INLINE size_t intersect_num_bs_cache(T* a, size_t size_a, T* b,
     auto key = lookup[i];  // each thread picks a vertex as the key
     if (binary_search_2phase(search, cache, key, search_size)) {
       num += 1;
-      dev::atomicAdd64(&d_tricnt[vertex_t(key)], 1);
+      callback();
     }
   }
   return num;
