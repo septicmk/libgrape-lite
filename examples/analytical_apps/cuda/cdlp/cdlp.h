@@ -233,7 +233,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
       auto* p_d_sorted_col_indices =
           thrust::raw_pointer_cast(ctx.d_sorted_col_indices.data());
 
-      cub::DoubleBuffer<msg_t> d_keys(p_d_col_indices, p_d_sorted_col_indices);
+      cub::DoubleBuffer<label_t> d_keys(p_d_col_indices, p_d_sorted_col_indices);
 
       CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
           d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
