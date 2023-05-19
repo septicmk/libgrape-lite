@@ -57,14 +57,13 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
     labels.Init(vertices);
     new_label.Init(iv, thrust::make_pair(0, false));
 
-    ReportMemroyUsage("Before resize row_offset");
     h_row_offset.resize(iv.size() + 1);
     d_row_offset.resize(iv.size() + 1);
-    ReportMemroyUsage("After resize row_offset");
 
-    ReportMemroyUsage("Before Cache eges.");
     h_col_indices.resize(oenum);
     d_col_indices.resize(oenum);
+    ReportMemroyUsage("Before Cache eges.");
+    d_sorted_col_indices.resize(oenum);
     ReportMemroyUsage("After Cache eges.");
 
     for (auto v : iv) {
@@ -108,6 +107,7 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
   pinned_vector<label_t> h_col_indices;
   thrust::device_vector<size_t> d_row_offset;
   thrust::device_vector<label_t> d_col_indices;
+  thrust::device_vector<label_t> d_sorted_col_indices;
 
 #ifdef PROFILING
   double get_msg_time;
@@ -183,15 +183,18 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
         },
         ctx.lb);
 
-    CHECK_CUDA(
-        cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.h_col_indices.data()),
-                        thrust::raw_pointer_cast(ctx.d_col_indices.data()),
-                        sizeof(label_t) * ctx.h_col_indices.size(),
-                        cudaMemcpyDeviceToHost, stream.cuda_stream()));
+    auto* d_offsets = thrust::raw_pointer_cast(ctx.d_row_offset.data());
+    auto* local_labels = thrust::raw_pointer_cast(ctx.d_col_indices.data());
 
-    stream.Sync();
+    if (0) {
+      CHECK_CUDA(
+          cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.h_col_indices.data()),
+                          thrust::raw_pointer_cast(ctx.d_col_indices.data()),
+                          sizeof(label_t) * ctx.h_col_indices.size(),
+                          cudaMemcpyDeviceToHost, stream.cuda_stream()));
 
-    {
+      stream.Sync();
+
       // TODO(mengke): A hybrid segmented sort. We may sort high-degree vertices
       // on GPU, sort relative low-degree vertices on CPU
       auto begin = grape::GetCurrentTime();
@@ -214,16 +217,37 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
 #endif
       std::cout << "Sort time: " << grape::GetCurrentTime() - begin
                 << std::endl;
+
+      CHECK_CUDA(
+          cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.d_col_indices.data()),
+                          thrust::raw_pointer_cast(ctx.h_col_indices.data()),
+                          sizeof(label_t) * ctx.h_col_indices.size(),
+                          cudaMemcpyHostToDevice, stream.cuda_stream()));
+    } else {
+      size_t num_items = ctx.oenum;
+      size_t num_segments = iv.size();
+      void* d_temp_storage = nullptr;
+      size_t temp_storage_bytes = 0;
+      auto* p_d_col_indices =
+          thrust::raw_pointer_cast(ctx.d_col_indices.data());
+      auto* p_d_sorted_col_indices =
+          thrust::raw_pointer_cast(ctx.d_sorted_col_indices.data());
+
+      cub::DoubleBuffer<msg_t> d_keys(p_d_col_indices, p_d_sorted_col_indices);
+
+      CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
+          d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
+          d_offsets, d_offsets + 1));
+      // Allocate temporary storage
+      CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+      // Run sorting operation
+      CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
+          d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
+          d_offsets, d_offsets + 1));
+      stream.Sync();
+      CHECK_CUDA(cudaFree(d_temp_storage));
+      local_labels = d_keys.Current();
     }
-
-    CHECK_CUDA(
-        cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.d_col_indices.data()),
-                        thrust::raw_pointer_cast(ctx.h_col_indices.data()),
-                        sizeof(label_t) * ctx.h_col_indices.size(),
-                        cudaMemcpyHostToDevice, stream.cuda_stream()));
-
-    auto* d_offsets = thrust::raw_pointer_cast(ctx.d_row_offset.data());
-    auto* local_labels = thrust::raw_pointer_cast(ctx.d_col_indices.data());
 
     WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
     uint32_t n_vertices = iv.size();
