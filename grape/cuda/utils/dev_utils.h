@@ -256,7 +256,7 @@ DEV_INLINE size_t CountCommonNeighbor(T* u_start, size_t u_len, T* v_start,
 }
 
 template <typename T>
-DEV_INLINE bool binary_search_2phase(T* list, T* cache, T key, T size) {
+DEV_INLINE bool binary_search_2phase(T* list, T* cache, T key, size_t size) {
   int p = (threadIdx.x / WARP_SIZE) * WARP_SIZE;
   int mid = 0;
   // phase 1: search in the cache
