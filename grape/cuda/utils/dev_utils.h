@@ -290,8 +290,8 @@ DEV_INLINE bool binary_search_2phase(T* list, T* cache, T key, T size) {
 }
 
 template <typename T>
-DEV_INLINE size_t intersect_num_bs_cache(T* a, T size_a, T* b, T size_b,
-                                         size_t* d_tricnt) {
+DEV_INLINE size_t intersect_num(T* a, T size_a, T* b, T size_b,
+                                size_t* d_tricnt) {
   size_t t_cnt = intersect_num_bs_cache(a, size_a, b, size_b, d_tricnt);
   size_t warp_cnt = warp_reduce(t_cnt);
   __syncwarp();
