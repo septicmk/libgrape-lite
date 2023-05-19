@@ -326,7 +326,7 @@ DEV_INLINE size_t intersect_num_bs_cache(T* a, size_t size_a, T* b,
     auto key = lookup[i];  // each thread picks a vertex as the key
     if (binary_search_2phase(search, cache, key, search_size)) {
       num += 1;
-      callback();
+      callback(key);
     }
   }
   return num;
