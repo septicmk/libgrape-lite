@@ -563,8 +563,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      edge_end_u = d_filling_offset[u.GetValue()];
                 auto edge_begin_v = d_row_offset[v.GetValue()],
                      edge_end_v = d_filling_offset[v.GetValue()];
-                auto degree_u = edge_end_u - edge_begin_u;
-                auto degree_v = edge_end_v - edge_begin_v;
+                size_t degree_u = edge_end_u - edge_begin_u;
+                size_t degree_v = edge_end_v - edge_begin_v;
                 size_t tmp =
                     intersect_num(&d_col_indices[edge_begin_u], degree_u,
                                   &d_col_indices[edge_begin_v], degree_v, d_tricnt);
