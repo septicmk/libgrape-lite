@@ -262,13 +262,13 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
-            for (auto begin =
-                     d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
-                 begin < d_row_offset[idx] + LCC_CHUNK_SIZE(0, length, LCC_M);
-                 begin++) {
+            size_t chunk_start =
+                d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
+            size_t chunk_end = chunks_start + LCC_CHUNK_SIZE(0, length, LCC_M);
+
+            for (auto begin = chunk_start; begin < chunk_end; begin++) {
               // msg_t v_gid = d_msg_col_indices[begin];
               msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
-
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
             }
           });
@@ -300,10 +300,11 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
-            for (auto begin =
-                     d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
-                 begin < d_row_offset[idx] + LCC_CHUNK_SIZE(K, length, LCC_M);
-                 begin++) {
+            size_t chunk_start =
+                d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
+            size_t chunk_end = chunks_start + LCC_CHUNK_SIZE(K, length, LCC_M);
+
+            for (auto begin = chunk_start; begin < chunk_end; begin++) {
               // msg_t v_gid = d_msg_col_indices[begin];
               msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
               d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
