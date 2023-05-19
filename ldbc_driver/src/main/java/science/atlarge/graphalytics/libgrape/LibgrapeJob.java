@@ -107,7 +107,7 @@ abstract public class LibgrapeJob {
     }
 
     Set<String> hashGraph = Set.of(
-      config.getStringArray("platform.libgrape.HashPartitioner");
+      config.getStringArray("platform.libgrape.HashPartitioner")
     );
     if(hashGraph.contains(graphName)) {
       args.add("-segmented_partition");
