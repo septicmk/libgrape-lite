@@ -298,9 +298,9 @@ DEV_INLINE size_t intersect_num(T* a, size_t size_a, T* b, size_t size_b,
   return warp_cnt;
 }
 
-template <typename T>
+template <typename T, typename Y>
 DEV_INLINE size_t intersect_num_bs_cache(T* a, size_t size_a, T* b, size_t size_b,
-                                         size_t* d_tricnt) {
+                                         Y* d_tricnt) {
   if (size_a == 0 || size_b == 0)
     return 0;
   int thread_lane =
