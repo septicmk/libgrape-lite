@@ -53,7 +53,6 @@ class SSSPContext : public grape::VoidContext<FRAG_T> {
     auto iv = frag.InnerVertices();
     auto ov = frag.OuterVertices();
 
-    ReportMemroyUsage("start SSSP.");
     this->src_id = src_id;
     this->lb = app_config.lb;
     dist.Init(vertices, std::numeric_limits<dist_t>::max());
