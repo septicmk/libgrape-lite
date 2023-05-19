@@ -289,9 +289,9 @@ DEV_INLINE bool binary_search_2phase(T* list, T* cache, T key, T size) {
   return false;
 }
 
-template <typename T>
+template <typename T, typename Y>
 DEV_INLINE size_t intersect_num(T* a, size_t size_a, T* b, size_t size_b,
-                                size_t* d_tricnt) {
+                                Y* d_tricnt) {
   size_t t_cnt = intersect_num_bs_cache(a, size_a, b, size_b, d_tricnt);
   size_t warp_cnt = warp_reduce(t_cnt);
   __syncwarp();
