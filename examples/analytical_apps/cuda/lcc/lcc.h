@@ -567,7 +567,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                 auto degree_v = edge_end_v - edge_begin_v;
                 size_t tmp =
                     intersect_num(&d_col_indices[edge_begin_u], degree_u,
-                                  &d_col_indices[edge_begin_v], degree_v);
+                                  &d_col_indices[edge_begin_v], degree_v, d_tricnt);
                 if (lane == 0) {
                   dev::atomicAdd64(&d_tricnt[v], tmp);
                   triangle_count += tmp;
