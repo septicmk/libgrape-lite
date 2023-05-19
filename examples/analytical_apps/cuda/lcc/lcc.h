@@ -479,6 +479,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         // thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
 
         // Calculate intersection
+        /*
         ForEachWithIndex(
             stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
               size_t triangle_count = 0;
@@ -550,6 +551,31 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               }
 
               dev::atomicAdd64(&d_tricnt[u], triangle_count);
+            });*/
+        ForEachWithIndexWarp(
+            stream, ws_in,
+            [=] __device__(size_t lane, size_t idx, vertex_t u) mutable {
+              int triangle_count = 0;
+              for (auto eid = d_row_offset[idx]; eid < d_filling_offset[idx];
+                   eid++) {
+                vertex_t v(d_col_indices[eid]);
+                auto edge_begin_u = d_row_offset[u.GetValue()],
+                     edge_end_u = d_filling_offset[u.GetValue()];
+                auto edge_begin_v = d_row_offset[v.GetValue()],
+                     edge_end_v = d_filling_offset[v.GetValue()];
+                auto degree_u = edge_end_u - edge_begin_u;
+                auto degree_v = edge_end_v - edge_begin_v;
+                size_t tmp =
+                    intersect_num(&d_col_indices[edge_begin_u], degree_u,
+                                  &d_col_indices[edge_begin_v], degree_v);
+                if (lane == 0) {
+                  dev::atomicAdd64(&d_tricnt[v], tmp);
+                  triangle_count += tmp;
+                }
+              }
+              if (lane == 0) {
+                dev::atomicAdd64(&d_tricnt[u], triangle_count);
+              }
             });
       }
 
