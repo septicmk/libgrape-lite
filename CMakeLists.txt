@@ -255,7 +255,7 @@ else ()
 
   if (WITH_CUDA)
     cuda_add_executable(gpu_analytical_apps examples/analytical_apps/flags.cc examples/analytical_apps/run_cuda_app.cu)
-    target_include_directories(gpu_analytical_apps SYSTEM PRIVATE thirdparty/cub thirdparty/thrust thirdparty/moderngpu/src)
+    target_include_directories(gpu_analytical_apps SYSTEM BEFORE PRIVATE thirdparty/cub thirdparty/thrust thirdparty/moderngpu/src)
     target_include_directories(gpu_analytical_apps PRIVATE examples/analytical_apps)
     set_target_properties(gpu_analytical_apps PROPERTIES OUTPUT_NAME run_cuda_app)
     target_link_libraries(gpu_analytical_apps grape-lite ${GFLAGS_LIBRARIES} ${CUDA_LIBS} ${NCCL_LIBRARIES} ${CMAKE_DL_LIBS})

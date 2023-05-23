@@ -62,9 +62,9 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
 
     h_col_indices.resize(oenum);
     d_col_indices.resize(oenum);
-    ReportMemroyUsage("Before Cache eges.");
+    //ReportMemoryUsage("Before Cache eges.");
     d_sorted_col_indices.resize(oenum);
-    ReportMemroyUsage("After Cache eges.");
+    //ReportMemoryUsage("After Cache eges.");
 
     for (auto v : iv) {
       labels[v] = frag.GetInnerVertexId(v);
@@ -178,7 +178,6 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
         [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
           vertex_t v = nbr.get_neighbor();
           size_t eid = d_frag.GetOutgoingEdgeIndex(nbr);
-
           p_d_col_indices[eid] = d_labels[v];
         },
         ctx.lb);
@@ -192,15 +191,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
                           thrust::raw_pointer_cast(ctx.d_col_indices.data()),
                           sizeof(label_t) * ctx.h_col_indices.size(),
                           cudaMemcpyDeviceToHost, stream.cuda_stream()));
-
       stream.Sync();
-
-      // TODO(mengke): A hybrid segmented sort. We may sort high-degree vertices
-      // on GPU, sort relative low-degree vertices on CPU
-      auto begin = grape::GetCurrentTime();
-#ifdef PROFILING
-      auto begin = grape::GetCurrentTime();
-#endif
       ForEachHost(
           iv,
           [&ctx](int tid, vertex_t v) {
@@ -212,12 +203,6 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
                       ctx.h_col_indices.begin() + end);
           },
           2048);
-#ifdef PROFILING
-      VLOG(1) << "Sort time: " << grape::GetCurrentTime() - begin;
-#endif
-      std::cout << "Sort time: " << grape::GetCurrentTime() - begin
-                << std::endl;
-
       CHECK_CUDA(
           cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.d_col_indices.data()),
                           thrust::raw_pointer_cast(ctx.h_col_indices.data()),
@@ -226,28 +211,15 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     } else {
       size_t num_items = ctx.oenum;
       size_t num_segments = iv.size();
-      void* d_temp_storage = nullptr;
-      size_t temp_storage_bytes = 0;
       auto* p_d_col_indices =
           thrust::raw_pointer_cast(ctx.d_col_indices.data());
       auto* p_d_sorted_col_indices =
           thrust::raw_pointer_cast(ctx.d_sorted_col_indices.data());
 
-      cub::DoubleBuffer<label_t> d_keys(p_d_col_indices,
-                                        p_d_sorted_col_indices);
-
-      CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-          d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
-          d_offsets, d_offsets + 1));
-      // Allocate temporary storage
-      CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-      // Run sorting operation
-      CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-          d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
-          d_offsets, d_offsets + 1));
       stream.Sync();
-      CHECK_CUDA(cudaFree(d_temp_storage));
-      local_labels = d_keys.Current();
+      local_labels =
+          SegmentSortLarge(p_d_col_indices, p_d_sorted_col_indices, d_offsets,
+                           d_offsets + 1, num_items, num_segments);
     }
 
     WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
@@ -271,7 +243,8 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
             // TODO(mengke.mk) Single thread with severe load-imbalance.
             for (auto eid = begin + 1; eid < end; eid++) {
               if (local_labels[eid] != local_labels[eid - 1]) {
-                if (curr_count > best_count) {
+                if (curr_count > best_count ||
+                    (curr_count == best_count && curr_label < best_label)) {
                   best_label = curr_label;
                   best_count = curr_count;
                 }
@@ -282,7 +255,8 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
               }
             }
 
-            if (curr_count > best_count) {
+            if (curr_count > best_count ||
+                (curr_count == best_count && curr_label < best_label)) {
               new_label = curr_label;
             } else {
               new_label = best_label;
@@ -334,7 +308,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     auto* p_d_row_offset = thrust::raw_pointer_cast(ctx.d_row_offset.data());
     auto size = iv.size();
 
-    ReportMemroyUsage("Before inclusive sum.");
+    //ReportMemoryUsage("Before inclusive sum.");
     CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
                                              d_out_degree, p_d_row_offset + 1,
                                              size, stream.cuda_stream()));
@@ -344,12 +318,14 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
                                              size, stream.cuda_stream()));
     CHECK_CUDA(cudaFree(d_temp_storage));
 
-    CHECK_CUDA(
-        cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.h_row_offset.data()),
-                        thrust::raw_pointer_cast(ctx.d_row_offset.data()),
-                        sizeof(size_t) * ctx.h_row_offset.size(),
-                        cudaMemcpyDeviceToHost, stream.cuda_stream()));
-    ReportMemroyUsage("After inclusive sum.");
+    if (0) {
+      CHECK_CUDA(
+          cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.h_row_offset.data()),
+                          thrust::raw_pointer_cast(ctx.d_row_offset.data()),
+                          sizeof(size_t) * ctx.h_row_offset.size(),
+                          cudaMemcpyDeviceToHost, stream.cuda_stream()));
+    }
+    //ReportMemoryUsage("After inclusive sum.");
 
     PropagateLabel(frag, ctx, messages);
   }

@@ -131,7 +131,8 @@ void CreateAndQuery(const grape::CommSpec& comm_spec, const std::string& efile,
         << "Only found " << dev_count << " GPUs, but " << comm_spec.local_num()
         << " processes are launched";
     CHECK_CUDA(cudaSetDevice(dev_id));
-    fragment = LoadGraph<FRAG_T, ArrowIOAdaptor>(efile, vfile, comm_spec, graph_spec);
+    fragment =
+        LoadGraph<FRAG_T, ArrowIOAdaptor>(efile, vfile, comm_spec, graph_spec);
 
     auto app = std::make_shared<APP_T<FRAG_T>>();
     DoQuery<FRAG_T, APP_T<FRAG_T>, Args...>(fragment, app, comm_spec, dev_id,
@@ -150,7 +151,8 @@ void CreateAndQuery(const grape::CommSpec& comm_spec, const std::string& efile,
         << "Only found " << dev_count << " GPUs, but " << comm_spec.local_num()
         << " processes are launched";
     CHECK_CUDA(cudaSetDevice(dev_id));
-    fragment = LoadGraph<FRAG_T, ArrowIOAdaptor>(efile, vfile, comm_spec, graph_spec);
+    fragment =
+        LoadGraph<FRAG_T, ArrowIOAdaptor>(efile, vfile, comm_spec, graph_spec);
 
     auto app = std::make_shared<APP_T<FRAG_T>>();
     DoQuery<FRAG_T, APP_T<FRAG_T>, Args...>(fragment, app, comm_spec, dev_id,
@@ -192,9 +194,15 @@ void Run() {
                    grape::LoadStrategy::kOnlyOut, SSSP>(
         comm_spec, efile, vfile, out_prefix, app_config, FLAGS_sssp_source, 0);
   } else if (application == "wcc") {
-    CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
-                   grape::LoadStrategy::kOnlyOut, WCC>(comm_spec, efile, vfile,
-                                                       out_prefix, app_config);
+    if (FLAGS_directed) {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kBothOutIn, WCC>(
+          comm_spec, efile, vfile, out_prefix, app_config);
+    } else {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kOnlyOut, WCC>(
+          comm_spec, efile, vfile, out_prefix, app_config);
+    }
   } else if (application == "wcc_opt") {
     CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
                    grape::LoadStrategy::kOnlyOut, WCCOpt>(

@@ -162,7 +162,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     auto d_mm = messages.DeviceObject();
 
     if (ctx.stage == 0) {
-      // ReportMemroyUsage("Before Exchange edges.");
+      ReportMemoryUsage("Before Exchange edges.");
       ctx.stage = 1;
       // Get degree of outer vertices
       messages.template ParallelProcess<dev_fragment_t, msg_t>(
@@ -229,9 +229,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       LOG(INFO) << "Filtered edges: " << n_filtered_edges;
 #endif
 
-      // ReportMemroyUsage("Before temporary col_indices edges");
+      ReportMemoryUsage("Before temporary col_indices edges");
       ctx.col_indices.resize(n_filtered_edges);
-      // ReportMemroyUsage("After temporary col_indicdes edges");
+      ReportMemoryUsage("After temporary col_indicdes edges");
 
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
       auto* d_msg_col_indices =
@@ -331,9 +331,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
 
       // Make space;
-      // ReportMemroyUsage("Before Offload graph topology.");
+      ReportMemoryUsage("Before Offload graph topology.");
       frag.OffloadTopology();
-      // ReportMemroyUsage("After Offload graph topology.");
+      ReportMemoryUsage("After Offload graph topology.");
 
       auto size = vertices.size();
       size_t valid_esize = 0;
@@ -371,7 +371,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       // std::cout << "n_valid_edges: " << valid_esize << std::endl;
 
       // std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
-      // ReportMemroyUsage("Resize");
+      ReportMemoryUsage("Resize");
       {  // compact col index
         size_t* d_compact_row_offset =
             thrust::raw_pointer_cast(ctx.compact_row_offset.data());
@@ -391,9 +391,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         stream.Sync();
         CHECK_CUDA(cudaFree(d_temp_storage));
 
-        // ReportMemroyUsage("Before resize col_sorted_indices topology.");
+        ReportMemoryUsage("Before resize col_sorted_indices topology.");
         ctx.col_sorted_indices.resize(valid_esize);
-        // ReportMemroyUsage("After resize col_sorted_indices topology.");
+        ReportMemoryUsage("After resize col_sorted_indices topology.");
 
         auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
         auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
@@ -415,13 +415,13 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                          });
         stream.Sync();
 
-        // ReportMemroyUsage("before clear col_indices topology.");
+        ReportMemoryUsage("before clear col_indices topology.");
         ctx.col_indices.clear();
         ctx.col_indices.shrink_to_fit();
-        // ReportMemroyUsage("After clear col_indices topology.");
+        ReportMemoryUsage("After clear col_indices topology.");
         ctx.col_indices.resize(valid_esize);
-        // ReportMemroyUsage("After resize col_indices topology.");
-        // ReportMemroyUsage("compact");
+        ReportMemoryUsage("After resize col_indices topology.");
+        ReportMemoryUsage("compact");
       }
 
       // Sort destinations with segmented sort
@@ -443,28 +443,35 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 #ifdef PROFILING
         auto begin = grape::GetCurrentTime();
 #endif
-        cub::DoubleBuffer<msg_t> d_keys(d_keys_out, d_keys_in);
-        // Determine temporary device storage requirements
-        void* d_temp_storage = nullptr;
-        size_t temp_storage_bytes = 0;
         stream.Sync();
-        // ReportMemroyUsage("Before segmented sort.");
-        CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-            d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
-            d_offsets, d_filling_offset));
-        // Allocate temporary storage
-        CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-        // Run sorting operation
-        CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
-            d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
-            d_offsets, d_filling_offset));
-        stream.Sync();
-        CHECK_CUDA(cudaFree(d_temp_storage));
-        // ReportMemroyUsage("After segmented sort.");
+
+        // cub::DoubleBuffer<msg_t> d_keys(d_keys_out, d_keys_in);
+        //// Determine temporary device storage requirements
+        // void* d_temp_storage = nullptr;
+        // size_t temp_storage_bytes = 0;
+        // ReportMemoryUsage("Before segmented sort.");
+        // std::cout << num_items << " " << num_segments << std::endl;
+        // CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
+        //    d_temp_storage, temp_storage_bytes, d_keys, num_items,
+        //    num_segments, d_offsets, d_filling_offset));
+        // std::cout << "temp_storage_bytes: " << temp_storage_bytes <<
+        // std::endl;
+        //// Allocate temporary storage
+        // CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+        //// Run sorting operation
+        // CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
+        //    d_temp_storage, temp_storage_bytes, d_keys, num_items,
+        //    num_segments, d_offsets, d_filling_offset));
+        // CHECK_CUDA(cudaFree(d_temp_storage));
+        // ReportMemoryUsage("After segmented sort.");
+
+        sorted_col =
+            SegmentSortLarge(d_keys_out, d_keys_in, d_offsets, d_filling_offset,
+                             num_items, num_segments);
+
 #ifdef PROFILING
         LOG(INFO) << "Sort time: " << grape::GetCurrentTime() - begin;
 #endif
-        sorted_col = d_keys.Current();
       }
 
       {
