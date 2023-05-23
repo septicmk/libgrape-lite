@@ -54,6 +54,12 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
       oenum += this->fragment().GetOutgoingAdjList(v).Size();
     }
 
+    if (frag.load_strategy == grape::LoadStrategy::kBothOutIn) {
+      for (auto v : iv) {
+        oenum += this->fragment().GetIncomingAdjList(v).Size();
+      }
+    }
+
     labels.Init(vertices);
     new_label.Init(iv, thrust::make_pair(0, false));
 
@@ -62,9 +68,9 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
 
     h_col_indices.resize(oenum);
     d_col_indices.resize(oenum);
-    //ReportMemoryUsage("Before Cache eges.");
+    // ReportMemoryUsage("Before Cache eges.");
     d_sorted_col_indices.resize(oenum);
-    //ReportMemoryUsage("After Cache eges.");
+    // ReportMemoryUsage("After Cache eges.");
 
     for (auto v : iv) {
       labels[v] = frag.GetInnerVertexId(v);
@@ -115,6 +121,18 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
 #endif
 };
 
+template <grape::LoadStrategy LS>
+struct MessageStrategyTrait {
+  static constexpr grape::MessageStrategy message_strategy =
+      grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
+};
+
+template <>
+struct MessageStrategyTrait<grape::LoadStrategy::kBothOutIn> {
+  static constexpr grape::MessageStrategy message_strategy =
+      grape::MessageStrategy::kAlongEdgeToOuterVertex;
+};
+
 template <typename FRAG_T>
 class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
              public ParallelEngine {
@@ -129,7 +147,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
   using size_type = size_t;
 
   static constexpr grape::MessageStrategy message_strategy =
-      grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
+    MessageStrategyTrait<FRAG_T::load_strategy>::message_strategy;
   static constexpr grape::LoadStrategy load_strategy =
       grape::LoadStrategy::kOnlyOut;
 
@@ -172,17 +190,41 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     WorkSourceRange<vertex_t> ws_iv(*iv.begin(), iv.size());
     auto* p_d_col_indices = thrust::raw_pointer_cast(ctx.d_col_indices.data());
     auto d_labels = ctx.labels.DeviceObject();
-
-    ForEachOutgoingEdge(
-        stream, d_frag, ws_iv,
-        [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
-          vertex_t v = nbr.get_neighbor();
-          size_t eid = d_frag.GetOutgoingEdgeIndex(nbr);
-          p_d_col_indices[eid] = d_labels[v];
-        },
-        ctx.lb);
-
     auto* d_offsets = thrust::raw_pointer_cast(ctx.d_row_offset.data());
+    bool isDirected = frag.load_strategy == grape::LoadStrategy::kBothOutIn;
+
+    // TODO(mengke.mk) if values are not change, we can bypass the copy. or use
+    // push mode.
+    if (isDirected) {
+      ForEachIncomingEdge(
+          stream, d_frag, ws_iv,
+          [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+            vertex_t v = nbr.get_neighbor();
+            size_t eid =
+                d_offsets[u.GetValue()] + d_frag.GetIncomingEdgeIndex(u, nbr);
+            p_d_col_indices[eid] = d_labels[v];
+          },
+          ctx.lb);
+      ForEachOutgoingEdge(
+          stream, d_frag, ws_iv,
+          [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+            vertex_t v = nbr.get_neighbor();
+            size_t eid = d_offsets[u.GetValue()] + d_frag.GetLocalInDegree(u) +
+                         d_frag.GetOutgoingEdgeIndex(u, nbr);
+            p_d_col_indices[eid] = d_labels[v];
+          },
+          ctx.lb);
+    } else {
+      ForEachOutgoingEdge(
+          stream, d_frag, ws_iv,
+          [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+            vertex_t v = nbr.get_neighbor();
+            size_t eid = d_frag.GetOutgoingEdgeIndex(nbr);
+            p_d_col_indices[eid] = d_labels[v];
+          },
+          ctx.lb);
+    }
+
     auto* local_labels = thrust::raw_pointer_cast(ctx.d_col_indices.data());
 
     if (0) {
@@ -265,7 +307,11 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
             if (new_label != d_labels[v]) {
               d_new_label[v].first = new_label;
               d_new_label[v].second = true;
-              d_mm.template SendMsgThroughOEdges(d_frag, v, new_label);
+              if(isDirected) {
+                d_mm.template SendMsgThroughEdges(d_frag, v, new_label);
+              } else {
+                d_mm.template SendMsgThroughOEdges(d_frag, v, new_label);
+              }
             } else {
               d_new_label[v].second = false;
             }
@@ -298,9 +344,13 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
       messages.ForceContinue();
     }
 
+    bool isDirected = (frag.load_strategy == grape::LoadStrategy::kBothOutIn);
     ForEachWithIndex(stream, ws_iv,
                      [=] __device__(size_t idx, vertex_t v) mutable {
                        d_out_degree[idx] = d_frag.GetLocalOutDegree(v);
+                       if (isDirected) {
+                         d_out_degree[idx] += d_frag.GetLocalInDegree(v);
+                       }
                      });
 
     void* d_temp_storage = nullptr;
@@ -308,7 +358,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     auto* p_d_row_offset = thrust::raw_pointer_cast(ctx.d_row_offset.data());
     auto size = iv.size();
 
-    //ReportMemoryUsage("Before inclusive sum.");
+    // ReportMemoryUsage("Before inclusive sum.");
     CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
                                              d_out_degree, p_d_row_offset + 1,
                                              size, stream.cuda_stream()));
@@ -325,7 +375,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
                           sizeof(size_t) * ctx.h_row_offset.size(),
                           cudaMemcpyDeviceToHost, stream.cuda_stream()));
     }
-    //ReportMemoryUsage("After inclusive sum.");
+    // ReportMemoryUsage("After inclusive sum.");
 
     PropagateLabel(frag, ctx, messages);
   }

@@ -401,11 +401,23 @@ class DeviceFragment {
     return edge_idx;
   }
 
+  DEV_INLINE size_t GetIncomingEdgeIndex(const vertex_t& u, const nbr_t& nbr) const {
+    size_t edge_idx = &nbr - ieoffset_[u.GetValue()];
+    return edge_idx;
+  }
+
   DEV_INLINE size_t GetOutgoingEdgeIndex(const nbr_t& nbr) const {
     size_t edge_idx = &nbr - oe_.data();
     assert(edge_idx < oenum_);
     return edge_idx;
   }
+
+  DEV_INLINE size_t GetOutgoingEdgeIndex(const vertex_t& u, const nbr_t& nbr) const {
+    size_t edge_idx = &nbr - oeoffset_[u.GetValue()];
+    return edge_idx;
+  }
+
+
 
  private:
   DeviceVertexMap<OID_T, VID_T> vm_;

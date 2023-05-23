@@ -250,7 +250,7 @@ class HostFragment
     dev_frag.iodst_ = ArrayView<fid_t>(d_iodst_);
 
     dev_frag.idoffset_ = ArrayView<fid_t*>(d_idoffset_);
-    dev_frag.odoffset_ = ArrayView<fid_t*>(d_odoffst_);
+    dev_frag.odoffset_ = ArrayView<fid_t*>(d_odoffset_);
     dev_frag.iodoffset_ = ArrayView<fid_t*>(d_iodoffset_);
 
     dev_frag.iespliters_ = ArrayView<ArrayView<nbr_t*>>(d_iespliters_);
@@ -525,7 +525,7 @@ class HostFragment
     if (msg_strategy ==
         grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex) {
       __initDestFidList(stream, false, true, odst_.get_edges(),
-                        odst_.get_offsets(), d_odst_, d_odoffst_);
+                        odst_.get_offsets(), d_odst_, d_odoffset_);
     } else if (msg_strategy ==
                grape::MessageStrategy::kAlongIncomingEdgeToOuterVertex) {
       __initDestFidList(stream, true, false, idst_.get_edges(),
@@ -609,7 +609,7 @@ class HostFragment
   thrust::device_vector<VDATA_T> d_vdata_;
 
   thrust::device_vector<fid_t> d_idst_, d_odst_, d_iodst_;
-  thrust::device_vector<fid_t*> d_idoffset_, d_odoffst_, d_iodoffset_;
+  thrust::device_vector<fid_t*> d_idoffset_, d_odoffset_, d_iodoffset_;
 
   std::vector<thrust::device_vector<nbr_t*>> d_iespliters_holder_,
       d_oespliters_holder_;

@@ -181,9 +181,15 @@ void Run() {
   app_config.wl_alloc_factor_out_remote = 0.2;
 
   if (application == "bfs") {
-    CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
-                   grape::LoadStrategy::kOnlyOut, BFS>(
-        comm_spec, efile, vfile, out_prefix, app_config, FLAGS_bfs_source);
+    if (FLAGS_directed) {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kBothOutIn, BFS>(
+          comm_spec, efile, vfile, out_prefix, app_config, FLAGS_bfs_source);
+    } else {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kOnlyOut, BFS>(
+          comm_spec, efile, vfile, out_prefix, app_config, FLAGS_bfs_source);
+    }
   } else if (application == "sssp") {
 #ifdef INT_WEIGHT
     using WeightT = uint32_t;
@@ -208,22 +214,41 @@ void Run() {
                    grape::LoadStrategy::kOnlyOut, WCCOpt>(
         comm_spec, efile, vfile, out_prefix, app_config);
   } else if (application == "pagerank") {
-    CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
-                   grape::LoadStrategy::kOnlyOut, Pagerank>(
-        comm_spec, efile, vfile, out_prefix, app_config, FLAGS_pr_d,
-        FLAGS_pr_mr);
+    if (FLAGS_directed) {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kBothOutIn, Pagerank>(
+          comm_spec, efile, vfile, out_prefix, app_config, FLAGS_pr_d,
+          FLAGS_pr_mr);
+    } else {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kOnlyOut, Pagerank>(
+          comm_spec, efile, vfile, out_prefix, app_config, FLAGS_pr_d,
+          FLAGS_pr_mr);
+    }
   } else if (application == "lcc") {
-    CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
-                   grape::LoadStrategy::kOnlyOut, LCC>(comm_spec, efile, vfile,
-                                                       out_prefix, app_config);
+    if (FLAGS_directed) {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kBothOutIn, LCC>(
+          comm_spec, efile, vfile, out_prefix, app_config);
+    } else {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kOnlyOut, LCC>(
+          comm_spec, efile, vfile, out_prefix, app_config);
+    }
   } else if (application == "lcc_opt") {
     CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
                    grape::LoadStrategy::kOnlyOut, LCC_OPT>(
         comm_spec, efile, vfile, out_prefix, app_config);
   } else if (application == "cdlp") {
-    CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
-                   grape::LoadStrategy::kOnlyOut, CDLP>(
-        comm_spec, efile, vfile, out_prefix, app_config, FLAGS_cdlp_mr);
+    if (FLAGS_directed) {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kBothOutIn, CDLP>(
+          comm_spec, efile, vfile, out_prefix, app_config, FLAGS_cdlp_mr);
+    } else {
+      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
+                     grape::LoadStrategy::kOnlyOut, CDLP>(
+          comm_spec, efile, vfile, out_prefix, app_config, FLAGS_cdlp_mr);
+    }
   } else {
     LOG(FATAL) << "Invalid app name: " << application;
   }
