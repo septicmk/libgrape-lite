@@ -138,6 +138,8 @@ else()
       SET(CMAKE_CUDA_ARCHITECTURES ${CUDA_ARCH_LIST})
       message(STATUS "CUDA_ARCH = ${CUDA_ARCH_LIST}")
       set_property(GLOBAL PROPERTY CUDA_ARCHITECTURES "${CUDA_ARCH_LIST}")
+      list(GET CUDA_ARCH_LIST 0 CUDA_ARCH_CODE)
+      set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -arch=sm_${CUDA_ARCH_CODE}")
     endif()
 
     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Wno-deprecated-gpu-targets")
