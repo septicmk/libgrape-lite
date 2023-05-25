@@ -121,7 +121,6 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
 #endif
 };
 
-
 template <typename FRAG_T>
 class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
              public ParallelEngine {
@@ -136,7 +135,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
   using size_type = size_t;
 
   static constexpr grape::MessageStrategy message_strategy =
-    MessageStrategyTrait<FRAG_T::load_strategy>::message_strategy;
+      MessageStrategyTrait<FRAG_T::load_strategy>::message_strategy;
   static constexpr grape::LoadStrategy load_strategy =
       grape::LoadStrategy::kOnlyOut;
 
@@ -249,8 +248,8 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
 
       stream.Sync();
       local_labels =
-          SegmentSortLarge(p_d_col_indices, p_d_sorted_col_indices, d_offsets,
-                           d_offsets + 1, num_items, num_segments);
+          SegmentSort(p_d_col_indices, p_d_sorted_col_indices, d_offsets,
+                      d_offsets + 1, num_items, num_segments);
     }
 
     WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
@@ -296,7 +295,7 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
             if (new_label != d_labels[v]) {
               d_new_label[v].first = new_label;
               d_new_label[v].second = true;
-              if(isDirected) {
+              if (isDirected) {
                 d_mm.template SendMsgThroughEdges(d_frag, v, new_label);
               } else {
                 d_mm.template SendMsgThroughOEdges(d_frag, v, new_label);

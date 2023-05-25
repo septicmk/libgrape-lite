@@ -130,16 +130,22 @@ static cudaError_t SortKeys64(
 // clang-format on
 
 template <typename T>
-inline T* SegmentSortLarge(T* d_keys_in, T* d_keys_out, size_t* d_offset_lo,
-                           size_t* d_offset_hi, size_t num_items,
-                           size_t num_segments) {
-  if(num_items <= 0 || num_segments <=0) return d_keys_in;
+// clang-format off
+T* SegmentSort(T* d_keys_in, 
+               T* d_keys_buffer, 
+               size_t* d_offset_lo,
+               size_t* d_offset_hi, 
+               size_t num_items, 
+               size_t num_segments) {
+  // clang-format on
+  if (num_items <= 0 || num_segments <= 0)
+    return d_keys_in;
   void* d_temp_storage = nullptr;
   size_t temp_storage_bytes = 0;
   const size_t MAX_SIZE = (1ul << 31) - 1ul;
 
   if (num_items <= MAX_SIZE) {
-    cub::DoubleBuffer<T> d_keys(d_keys_in, d_keys_out);
+    cub::DoubleBuffer<T> d_keys(d_keys_in, d_keys_buffer);
     CHECK_CUDA(cub::DeviceSegmentedRadixSort::SortKeys(
         d_temp_storage, temp_storage_bytes, d_keys, num_items, num_segments,
         d_offset_lo, d_offset_hi));
@@ -152,13 +158,13 @@ inline T* SegmentSortLarge(T* d_keys_in, T* d_keys_out, size_t* d_offset_lo,
     CHECK_CUDA(cudaFree(d_temp_storage));
     return d_keys.Current();
   } else {
-    cub::DoubleBuffer<T> d_keys(d_keys_in, d_keys_out);
+    cub::DoubleBuffer<T> d_keys(d_keys_in, d_keys_buffer);
     CHECK_CUDA(SortKeys64(d_temp_storage, temp_storage_bytes, d_keys,
                           (int64_t) num_items, (int64_t) num_segments,
                           d_offset_lo, d_offset_hi));
     // Allocate temporary storage
     CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-    //std::cout << temp_storage_bytes << std::endl;
+    // std::cout << temp_storage_bytes << std::endl;
     // Run sorting operation
     CHECK_CUDA(SortKeys64(d_temp_storage, temp_storage_bytes, d_keys,
                           (int64_t) num_items, (int64_t) num_segments,
@@ -166,6 +172,27 @@ inline T* SegmentSortLarge(T* d_keys_in, T* d_keys_out, size_t* d_offset_lo,
     CHECK_CUDA(cudaFree(d_temp_storage));
     return d_keys.Current();
   }
+}
+
+template <typename T>
+// clang-format off
+void PrefixSum(
+    T* d_keys_in,
+    T* d_keys_out,
+    size_t size,
+    cudaStream_t d_stream;
+    ) {
+  // clang-format on
+  void* d_temp_storage = nullptr;
+  size_t temp_storage_bytes = 0;
+  CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
+                                           d_keys_in, d_keys_out, size,
+                                           d_stream));
+  CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+  CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
+                                           d_keys_in, d_keys_out, size,
+                                           d_stream));
+  CHECK_CUDA(cudaFree(d_temp_storage));
 }
 
 }  // namespace cuda
