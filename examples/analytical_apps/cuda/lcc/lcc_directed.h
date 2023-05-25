@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#ifndef EXAMPLES_ANALYTICAL_APPS_CUDA_LCC_LCC_H_
-#define EXAMPLES_ANALYTICAL_APPS_CUDA_LCC_LCC_H_
+#ifndef EXAMPLES_ANALYTICAL_APPS_CUDA_LCC_LCCD_H_
+#define EXAMPLES_ANALYTICAL_APPS_CUDA_LCC_LCCD_H_
 #ifdef __CUDACC__
 #include <iomanip>
 #include <iostream>
@@ -22,24 +22,24 @@ limitations under the License.
 #include "cuda/app_config.h"
 #include "grape/grape.h"
 
-#define LCC_M 16
-#define LCC_CHUNK_SIZE(I, N, m) (((I) < ((N) % (m))) + (N) / (m))
-#define LCC_CHUNK_START(I, N, m) \
+#define LCCD_M 16
+#define LCCD_CHUNK_SIZE(I, N, m) (((I) < ((N) % (m))) + (N) / (m))
+#define LCCD_CHUNK_START(I, N, m) \
   (((I) < ((N) % (m)) ? (I) : ((N) % (m))) + (I) * ((N) / (m)))
 
 namespace grape {
 namespace cuda {
 template <typename FRAG_T>
-class LCCContext : public grape::VoidContext<FRAG_T> {
+class LCCDContext : public grape::VoidContext<FRAG_T> {
  public:
   using vid_t = typename FRAG_T::vid_t;
   using vertex_t = typename FRAG_T::vertex_t;
   using msg_t = vid_t;
 
-  explicit LCCContext(const FRAG_T& frag) : grape::VoidContext<FRAG_T>(frag) {}
+  explicit LCCDContext(const FRAG_T& frag) : grape::VoidContext<FRAG_T>(frag) {}
 
 #ifdef PROFILING
-  ~LCCContext() {
+  ~LCCDContext() {
     VLOG(1) << "Get msg time: " << get_msg_time * 1000;
     VLOG(1) << "Pagerank kernel time: " << traversal_kernel_time * 1000;
     VLOG(1) << "Send msg time: " << send_msg_time * 1000;
@@ -49,6 +49,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
   void Init(GPUMessageManager& messages, AppConfig app_config) {
     auto& frag = this->fragment();
     auto vertices = frag.Vertices();
+    isDirected = frag.load_strategy == grape::LoadStrategy::kBothOutIn;
 
     this->lb = app_config.lb;
     this->stage = 0;
@@ -70,8 +71,14 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
       n_vertices += 1;
     }
 
+    if (isDirected) {
+      for (auto u : frag.InnerVertices()) {
+        n_edges += frag.GetLocalInDegree(u);
+      }
+    }
+
     messages.InitBuffer(
-        std::max((n_edges / LCC_M + 1) * (sizeof(thrust::pair<vid_t, msg_t>)),
+        std::max((n_edges / LCCD_M + 1) * (sizeof(thrust::pair<vid_t, msg_t>)),
                  n_vertices * (sizeof(size_t))),
         1 * (sizeof(thrust::pair<vid_t, msg_t>)));  // rely on syncLengths()
   }
@@ -104,6 +111,7 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
   thrust::device_vector<size_t> compact_row_offset;
   thrust::device_vector<msg_t> col_indices;
   thrust::device_vector<msg_t> col_sorted_indices;
+  bool isDirected;
   int stage{};
 #ifdef PROFILING
   double get_msg_time{};
@@ -113,10 +121,10 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
 };
 
 template <typename FRAG_T>
-class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
+class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
             public ParallelEngine {
  public:
-  INSTALL_GPU_WORKER(LCC<FRAG_T>, LCCContext<FRAG_T>, FRAG_T)
+  INSTALL_GPU_WORKER(LCCD<FRAG_T>, LCCDContext<FRAG_T>, FRAG_T)
   using dev_fragment_t = typename fragment_t::device_t;
   using vid_t = typename fragment_t::vid_t;
   using edata_t = typename fragment_t::edata_t;
@@ -125,7 +133,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
   using msg_t = vid_t;
 
   static constexpr grape::MessageStrategy message_strategy =
-      grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
+      MessageStrategyTrait<FRAG_T::load_strategy>::message_strategy;
   static constexpr grape::LoadStrategy load_strategy =
       grape::LoadStrategy::kOnlyOut;
   static constexpr bool need_build_device_vm = true;
@@ -136,14 +144,23 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     auto d_frag = frag.DeviceObject();
     auto d_global_degree = ctx.global_degree.DeviceObject();
     auto d_mm = messages.DeviceObject();
+    auto isDirected = ctx.isDirected;
     WorkSourceRange<vertex_t> ws_in(*inner_vertices.begin(),
                                     inner_vertices.size());
 
-    ForEach(messages.stream(), ws_in, [=] __device__(vertex_t v) mutable {
-      msg_t degree = d_frag.GetLocalOutDegree(v);
-      d_global_degree[v] = degree;
-      d_mm.template SendMsgThroughOEdges(d_frag, v, degree);
-    });
+    if (isDirected) {
+      ForEach(messages.stream(), ws_in, [=] __device__(vertex_t v) mutable {
+        msg_t degree = d_frag.GetLocalOutDegree(v) + d_frag.GetLocalInDegree(v);
+        d_global_degree[v] = degree;
+        d_mm.template SendMsgThroughEdges(d_frag, v, degree);
+      });
+    } else {
+      ForEach(messages.stream(), ws_in, [=] __device__(vertex_t v) mutable {
+        msg_t degree = d_frag.GetLocalOutDegree(v);
+        d_global_degree[v] = degree;
+        d_mm.template SendMsgThroughOEdges(d_frag, v, degree);
+      });
+    }
     messages.ForceContinue();
   }
 
@@ -159,6 +176,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
     auto d_tricnt = ctx.tricnt.DeviceObject();
     auto d_mm = messages.DeviceObject();
+    auto isDirected = ctx.isDirected;
 
     if (ctx.stage == 0) {
       ReportMemoryUsage("Before Exchange edges.");
@@ -189,10 +207,34 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           },
           ctx.lb);
+      if (isDirected) {
+        ForEachIncomingEdge(
+            stream, dev_frag, ws_in,
+            [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+              vertex_t v = nbr.get_neighbor();
+              msg_t u_degree = d_global_degree[u];
+              msg_t v_degree = d_global_degree[v];
+
+              if (u_degree > v_degree) {
+                atomicAdd(&d_valid_out_degree[u], 1);
+              } else {
+                vid_t u_gid = dev_frag.GetInnerVertexGid(u);
+                vid_t v_gid = dev_frag.Vertex2Gid(v);
+                if ((u_degree == v_degree && u_gid > v_gid)) {
+                  atomicAdd(&d_valid_out_degree[u], 1);
+                }
+              }
+            },
+            ctx.lb);
+      }
 
       // clang-format off
       ForEach(stream, ws_in, [=] __device__(vertex_t v) mutable {
+        if (isDirected) {
+          d_mm.template SendMsgThroughEdges(dev_frag, v, d_valid_out_degree[v]);
+        } else {
           d_mm.template SendMsgThroughOEdges(dev_frag, v, d_valid_out_degree[v]);
+        }
       });
       // clang-format on
       messages.ForceContinue();
@@ -258,26 +300,50 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             }
           },
           ctx.lb);
+      if (isDirected) {
+        ForEachIncomingEdge(
+            stream, dev_frag, ws_in,
+            [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+              vertex_t v = nbr.get_neighbor();
+              vid_t u_degree = d_global_degree[u];
+              vid_t v_degree = d_global_degree[v];
+              vid_t u_gid = dev_frag.GetInnerVertexGid(u);
+              vid_t v_gid = dev_frag.Vertex2Gid(v);
+
+              if ((u_degree > v_degree) ||
+                  (u_degree == v_degree && u_gid > v_gid)) {
+                auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
+                // d_col_indices[pos] = v.GetValue();
+                // d_msg_col_indices[pos] = v_gid;
+                d_col_indices[pos] = v.GetValue();
+              }
+            },
+            ctx.lb);
+      }
 
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
             size_t chunk_start =
-                d_row_offset[idx] + LCC_CHUNK_START(0, length, LCC_M);
-            size_t chunk_end = chunk_start + LCC_CHUNK_SIZE(0, length, LCC_M);
+                d_row_offset[idx] + LCCD_CHUNK_START(0, length, LCCD_M);
+            size_t chunk_end = chunk_start + LCCD_CHUNK_SIZE(0, length, LCCD_M);
 
             for (auto begin = chunk_start; begin < chunk_end; begin++) {
               // msg_t v_gid = d_msg_col_indices[begin];
               msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
-              d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
+              if (isDirected) {
+                d_mm.template SendMsgThroughEdges(dev_frag, u, v_gid);
+              } else {
+                d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
+              }
             }
           });
 
       stream.Sync();
       // ctx.filling_offset.Init(vertices, 0);
       messages.ForceContinue();
-    } else if (ctx.stage >= 2 && ctx.stage < 1 + LCC_M) {
+    } else if (ctx.stage >= 2 && ctx.stage < 1 + LCCD_M) {
       int K = ctx.stage - 1;
       ctx.stage = ctx.stage + 1;
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
@@ -302,18 +368,22 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
             // TODO(mengke): replace it with ForEachOutgoingEdge
             size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
             size_t chunk_start =
-                d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
-            size_t chunk_end = chunk_start + LCC_CHUNK_SIZE(K, length, LCC_M);
+                d_row_offset[idx] + LCCD_CHUNK_START(K, length, LCCD_M);
+            size_t chunk_end = chunk_start + LCCD_CHUNK_SIZE(K, length, LCCD_M);
 
             for (auto begin = chunk_start; begin < chunk_end; begin++) {
               // msg_t v_gid = d_msg_col_indices[begin];
               msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
-              d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
+              if (isDirected) {
+                d_mm.template SendMsgThroughEdges(dev_frag, u, v_gid);
+              } else {
+                d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
+              }
             }
           });
       stream.Sync();
       messages.ForceContinue();
-    } else if (ctx.stage == 1 + LCC_M) {
+    } else if (ctx.stage == 1 + LCCD_M) {
       ctx.stage = ctx.stage + 1;
       auto d_filling_offset = ctx.filling_offset.DeviceObject();
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
@@ -601,7 +671,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       }
 
       messages.ForceContinue();
-    } else if (ctx.stage == LCC_M + 2) {
+    } else if (ctx.stage == LCCD_M + 2) {
       messages.template ParallelProcess<dev_fragment_t, size_t>(
           dev_frag, [=] __device__(vertex_t v, size_t tri_cnt) mutable {
             dev::atomicAdd64(&d_tricnt[v], tri_cnt);
@@ -612,4 +682,4 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 }  // namespace cuda
 }  // namespace grape
 #endif  // __CUDACC__
-#endif  // EXAMPLES_ANALYTICAL_APPS_CUDA_LCC_LCC_H_
+#endif  // EXAMPLES_ANALYTICAL_APPS_CUDA_LCC_LCCD_H_

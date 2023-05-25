@@ -133,6 +133,7 @@ template <typename T>
 inline T* SegmentSortLarge(T* d_keys_in, T* d_keys_out, size_t* d_offset_lo,
                            size_t* d_offset_hi, size_t num_items,
                            size_t num_segments) {
+  if(num_items <= 0 || num_segments <=0) return d_keys_in;
   void* d_temp_storage = nullptr;
   size_t temp_storage_bytes = 0;
   const size_t MAX_SIZE = (1ul << 31) - 1ul;
@@ -157,7 +158,7 @@ inline T* SegmentSortLarge(T* d_keys_in, T* d_keys_out, size_t* d_offset_lo,
                           d_offset_lo, d_offset_hi));
     // Allocate temporary storage
     CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-    std::cout << temp_storage_bytes << std::endl;
+    //std::cout << temp_storage_bytes << std::endl;
     // Run sorting operation
     CHECK_CUDA(SortKeys64(d_temp_storage, temp_storage_bytes, d_keys,
                           (int64_t) num_items, (int64_t) num_segments,

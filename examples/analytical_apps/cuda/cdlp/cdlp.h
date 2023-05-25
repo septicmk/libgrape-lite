@@ -121,17 +121,6 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
 #endif
 };
 
-template <grape::LoadStrategy LS>
-struct MessageStrategyTrait {
-  static constexpr grape::MessageStrategy message_strategy =
-      grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
-};
-
-template <>
-struct MessageStrategyTrait<grape::LoadStrategy::kBothOutIn> {
-  static constexpr grape::MessageStrategy message_strategy =
-      grape::MessageStrategy::kAlongEdgeToOuterVertex;
-};
 
 template <typename FRAG_T>
 class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,

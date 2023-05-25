@@ -35,7 +35,7 @@ limitations under the License.
 #include "cuda/bfs/bfs.h"
 #include "cuda/cdlp/cdlp.h"
 #include "cuda/lcc/lcc.h"
-#include "cuda/lcc/lcc_opt.h"
+#include "cuda/lcc/lcc_directed.h"
 #include "cuda/pagerank/pagerank.h"
 #include "cuda/sssp/sssp.h"
 #include "cuda/wcc/wcc.h"
@@ -228,17 +228,13 @@ void Run() {
   } else if (application == "lcc") {
     if (FLAGS_directed) {
       CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
-                     grape::LoadStrategy::kBothOutIn, LCC>(
+                     grape::LoadStrategy::kBothOutIn, LCCD>(
           comm_spec, efile, vfile, out_prefix, app_config);
     } else {
       CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
                      grape::LoadStrategy::kOnlyOut, LCC>(
           comm_spec, efile, vfile, out_prefix, app_config);
     }
-  } else if (application == "lcc_opt") {
-    CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
-                   grape::LoadStrategy::kOnlyOut, LCC_OPT>(
-        comm_spec, efile, vfile, out_prefix, app_config);
   } else if (application == "cdlp") {
     if (FLAGS_directed) {
       CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
