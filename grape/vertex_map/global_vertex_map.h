@@ -26,6 +26,7 @@ limitations under the License.
 #include <vector>
 
 #include "grape/config.h"
+#include "grape/cuda/utils/cuda_utils.h"
 #include "grape/fragment/partitioner.h"
 #include "grape/graph/id_indexer.h"
 #include "grape/serialization/in_archive.h"
@@ -261,13 +262,16 @@ class GlobalVertexMap : public VertexMapBase<OID_T, VID_T, PARTITIONER_T> {
         std::unique_ptr<IOADAPTOR_T>(new IOADAPTOR_T(std::string(fbuf)));
     io_adaptor->Open("rb");
 
+    cuda::ReportHostMemoryUsage("before base deserialize");
     base_t::deserialize(io_adaptor);
 
+    cuda::ReportHostMemoryUsage("before indexers deseirlaize");
     indexers_.resize(comm_spec_.fnum());
     for (fid_t i = 0; i < comm_spec_.fnum(); ++i) {
       indexers_[i].Deserialize(io_adaptor);
     }
     io_adaptor->Close();
+    cuda::ReportHostMemoryUsage("after vertexmap build");
   }
 
   void UpdateToBalance(std::vector<VID_T>& vnum_list,

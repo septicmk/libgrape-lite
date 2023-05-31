@@ -192,6 +192,9 @@ class SegmentedPartitioner {
     OutArchive arc;
     CHECK(reader->ReadArchive(arc));
     arc >> fnum_ >> o2f_;
+    o2f_.clear();
+    o2f_.shrink_to_fit();
+    malloc_trim(1024 * 1024 /* 1MB */);
   }
 
  private:
@@ -260,6 +263,8 @@ class SegmentedPartitioner<std::string> {
     OutArchive arc;
     CHECK(reader->ReadArchive(arc));
     arc >> fnum_ >> o2f_;
+    o2f_.clear();
+    o2f_.shrink_to_fit();
   }
 
  private:

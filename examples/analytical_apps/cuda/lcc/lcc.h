@@ -22,11 +22,6 @@ limitations under the License.
 #include "cuda/app_config.h"
 #include "grape/grape.h"
 
-#define LCC_M 16
-#define LCC_CHUNK_SIZE(I, N, m) (((I) < ((N) % (m))) + (N) / (m))
-#define LCC_CHUNK_START(I, N, m) \
-  (((I) < ((N) % (m)) ? (I) : ((N) % (m))) + (I) * ((N) / (m)))
-
 namespace grape {
 namespace cuda {
 template <typename FRAG_T>
@@ -46,34 +41,39 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
   }
 #endif
 
-  void Init(GPUMessageManager& messages, AppConfig app_config) {
+  void Init(GPUMessageManager& messages, AppConfig app_config,
+            msg_t** sorted_col, size_t** offset) {
     auto& frag = this->fragment();
     auto vertices = frag.Vertices();
 
     this->lb = app_config.lb;
     this->stage = 0;
 
-    valid_out_degree.Init(vertices, 0);
     global_degree.Init(vertices, 0);
-    filling_offset.Init(vertices, 0);
     tricnt.Init(vertices, 0);
     tricnt.H2D();
 
     row_offset.resize(vertices.size() + 1, 0);
-    compact_row_offset.resize(vertices.size() + 1, 0);
+    size_t n_vertices = vertices.size();
 
-    size_t n_edges = 0;
-    size_t n_vertices = 0;
     using nbr_t = typename FRAG_T::nbr_t;
-    for (auto u : frag.InnerVertices()) {
-      n_edges += frag.GetLocalOutDegree(u);
-      n_vertices += 1;
-    }
 
     messages.InitBuffer(
-        std::max((n_edges / LCC_M + 1) * (sizeof(thrust::pair<vid_t, msg_t>)),
-                 n_vertices * (sizeof(size_t))),
+        n_vertices * (sizeof(size_t)),
         1 * (sizeof(thrust::pair<vid_t, msg_t>)));  // rely on syncLengths()
+
+    size_t n_edges = (*offset)[n_vertices];
+    std::cout << "Edge size GPU: " << n_edges << std::endl;
+    col_indices.resize(n_edges, 0);
+    auto* d_col_indices = thrust::raw_pointer_cast(col_indices.data());
+    CHECK_CUDA(cudaMemcpy(d_col_indices, *sorted_col, sizeof(msg_t) * n_edges,
+                          cudaMemcpyHostToDevice));
+
+    auto* d_row_offset = thrust::raw_pointer_cast(row_offset.data());
+
+    CHECK_CUDA(cudaMemcpy(d_row_offset, *offset,
+                          sizeof(size_t) * (n_vertices + 1),
+                          cudaMemcpyHostToDevice));
   }
 
   void Output(std::ostream& os) override {
@@ -96,14 +96,10 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
   }
 
   LoadBalancing lb{};
-  VertexArray<msg_t, vid_t> valid_out_degree;
   VertexArray<msg_t, vid_t> global_degree;
-  VertexArray<size_t, vid_t> filling_offset;
   VertexArray<size_t, vid_t> tricnt;
   thrust::device_vector<size_t> row_offset;
-  thrust::device_vector<size_t> compact_row_offset;
   thrust::device_vector<msg_t> col_indices;
-  thrust::device_vector<msg_t> col_sorted_indices;
   int stage{};
 #ifdef PROFILING
   double get_msg_time{};
@@ -128,7 +124,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
   static constexpr grape::LoadStrategy load_strategy =
       grape::LoadStrategy::kOnlyOut;
-  static constexpr bool need_build_device_vm = true;
+  // static constexpr bool need_build_device_vm = false;
 
   void PEval(const fragment_t& frag, context_t& ctx,
              message_manager_t& messages) {
@@ -142,290 +138,30 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     ForEach(messages.stream(), ws_in, [=] __device__(vertex_t v) mutable {
       msg_t degree = d_frag.GetLocalOutDegree(v);
       d_global_degree[v] = degree;
-      d_mm.template SendMsgThroughOEdges(d_frag, v, degree);
     });
     messages.ForceContinue();
-  }
-
-  void SyncOuterDeg(const fragment_t& frag, context_t& ctx,
-                    message_manager_t& messages) {
-    auto dev_frag = frag.DeviceObject();
-    auto& stream = messages.stream();
-    auto iv = frag.InnerVertices();
-    auto d_global_degree = ctx.global_degree.DeviceObject();
-    auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
-    auto d_mm = messages.DeviceObject();
-
-    // Recieve outer degrees.
-    messages.template ParallelProcess<dev_fragment_t, msg_t>(
-        dev_frag, [=] __device__(vertex_t v, msg_t degree) mutable {
-          d_global_degree[v] = degree;
-        });
-
-    WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
-
-    // breaking isomorphism since we are working on a undirected graph.
-    // For triangle like 1-2-3. For vertex 1 we only count 1-2-3, since 1-3-2
-    // must exist.
-    ForEachOutgoingEdge(
-        stream, dev_frag, ws_in,
-        [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
-          vertex_t v = nbr.get_neighbor();
-          msg_t u_degree = d_global_degree[u];
-          msg_t v_degree = d_global_degree[v];
-
-          if (u_degree > v_degree) {
-            atomicAdd(&d_valid_out_degree[u], 1);
-          } else {
-            vid_t u_gid = dev_frag.GetInnerVertexGid(u);
-            vid_t v_gid = dev_frag.Vertex2Gid(v);
-            if ((u_degree == v_degree && u_gid > v_gid)) {
-              atomicAdd(&d_valid_out_degree[u], 1);
-            }
-          }
-        },
-        ctx.lb);
-
-    // clang-format off
-    ForEach(stream, ws_in, [=] __device__(vertex_t v) mutable {
-      d_mm.template SendMsgThroughOEdges(dev_frag, v, d_valid_out_degree[v]);
-    });
-    // clang-format on
-    messages.ForceContinue();
-  }
-
-  void PolulateAdjList(const fragment_t& frag, context_t& ctx,
-                       message_manager_t& messages) {
-    auto dev_frag = frag.DeviceObject();
-    auto& stream = messages.stream();
-    auto vertices = frag.Vertices();
-    auto iv = frag.InnerVertices();
-    auto d_global_degree = ctx.global_degree.DeviceObject();
-    auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
-    auto d_mm = messages.DeviceObject();
-    auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
-    auto d_filling_offset = ctx.filling_offset.DeviceObject();
-
-    messages.template ParallelProcess<dev_fragment_t, msg_t>(
-        dev_frag, [=] __device__(vertex_t v, msg_t degree) mutable {
-          d_valid_out_degree[v] = degree;
-        });
-
-    PreifxSum(d_valid_out_degree, data(), d_row_offset + 1,
-              vertices.size() stream.cuda_stream());
-
-    CHECK_CUDA(cudaMemcpyAsync(d_filling_offset.data(), d_row_offset,
-                               sizeof(size_t) * size, cudaMemcpyDeviceToDevice,
-                               stream.cuda_stream()));
-
-    auto n_filtered_edges = ctx.row_offset[vertices.size()];
-    // ReportMemoryUsage("Before temporary col_indices edges");
-    ctx.col_indices.resize(n_filtered_edges);
-    // ReportMemoryUsage("After temporary col_indicdes edges");
-
-    auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
-    auto* d_msg_col_indices =
-        thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
-    WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
-
-    // filling edges with precomputed gids
-    ForEachOutgoingEdge(
-        stream, dev_frag, ws_in,
-        [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
-          vertex_t v = nbr.get_neighbor();
-          vid_t u_degree = d_global_degree[u];
-          vid_t v_degree = d_global_degree[v];
-          vid_t u_gid = dev_frag.GetInnerVertexGid(u);
-          vid_t v_gid = dev_frag.Vertex2Gid(v);
-
-          if ((u_degree > v_degree) ||
-              (u_degree == v_degree && u_gid > v_gid)) {
-            auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
-            d_col_indices[pos] = v.GetValue();
-          }
-        },
-        ctx.lb);
-  }
-
-  void TransforAdjList(const fragment_t& frag, context_t& ctx,
-                       message_manager_t& messages) {
-    int K = ctx.stage - 1;
-    auto dev_frag = frag.DeviceObject();
-    auto& stream = messages.stream();
-    auto iv = frag.InnerVertices();
-    auto d_mm = messages.DeviceObject();
-    auto d_filling_offset = ctx.filling_offset.DeviceObject();
-    auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
-    auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
-
-    if (K > 0) {
-      messages.template ParallelProcess<dev_fragment_t, msg_t>(
-          dev_frag, [=] __device__(vertex_t u, msg_t v_gid) mutable {
-            vertex_t v;
-            assert(dev_frag.IsOuterVertex(u));
-            if (dev_frag.Gid2Vertex(v_gid, v)) {
-              auto pos = dev::atomicAdd64(&d_filling_offset[u], 1);
-              assert(pos + 1 <= d_row_offset[u.GetValue() + 1]);
-              d_col_indices[pos] = v.GetValue();
-            }
-          });
-    }
-
-    if (K <= LCC_M) {
-      WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
-      ForEachWithIndex(
-          stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
-            // TODO(mengke): replace it with ForEachOutgoingEdge
-            size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
-            size_t chunk_start =
-                d_row_offset[idx] + LCC_CHUNK_START(K, length, LCC_M);
-            size_t chunk_end = chunk_start + LCC_CHUNK_SIZE(K, length, LCC_M);
-
-            for (auto begin = chunk_start; begin < chunk_end; begin++) {
-              msg_t v_gid = dev_frag.Vertex2Gid(vertex_t(d_col_indices[begin]));
-              d_mm.template SendMsgThroughOEdges(dev_frag, u, v_gid);
-            }
-          });
-      stream.Sync();
-      messages.ForceContinue();
-    }
-  }
-
-  msg_t* CompressAdjList(const fragment_t& frag, context_t& ctx,
-                         message_manager_t& messages) {
-    auto dev_frag = frag.DeviceObject();
-    auto& stream = messages.stream();
-    auto vertices = frag.Vertices();
-    auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
-    auto d_mm = messages.DeviceObject();
-    auto d_filling_offset = ctx.filling_offset.DeviceObject();
-    auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
-    auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
-    msg_t* sorted_col = NULL;
-
-    // Make space;
-    // ReportMemoryUsage("Before Offload graph topology.");
-    frag.OffloadTopology();
-    // ReportMemoryUsage("After Offload graph topology.");
-
-    auto size = vertices.size();
-    size_t valid_esize = 0;
-    {  // cacluate valid edges
-      auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
-      auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
-      auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
-      WorkSourceRange<vertex_t> ws_in(*vertices.begin(), vertices.size());
-      ForEachWithIndex(
-          stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
-            // TODO(mengke): replace it with ForEachOutgoingEdge
-            size_t length = (d_filling_offset[idx] - d_row_offset[idx]);
-            assert(d_filling_offset[idx] >= d_row_offset[idx] &&
-                   d_filling_offset[idx] <= d_row_offset[idx + 1]);
-            d_valid_out_degree[u] = length;
-          });
-      stream.Sync();
-
-      // void* d_temp_storage = nullptr;
-      // size_t* ans = nullptr;
-      // CHECK_CUDA(cudaMalloc(&ans, sizeof(size_t)));
-      // size_t temp_storage_bytes = 0;
-      // CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
-      //                                  d_valid_out_degree.data(), ans, size,
-      //                                  stream.cuda_stream()));
-      // CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-      // CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
-      //                                  d_valid_out_degree.data(), ans, size,
-      //                                  stream.cuda_stream()));
-      // CHECK_CUDA(cudaFree(d_temp_storage));
-      // CHECK_CUDA(cudaMemcpyAsync(&valid_esize, ans, sizeof(size_t),
-      //                           cudaMemcpyDeviceToHost,
-      //                           stream.cuda_stream()));
-      // stream.Sync();
-      // CHECK_CUDA(cudaFree(ans));
-    }
-
-    // std::cout << "n_valid_edges: " << valid_esize << std::endl;
-    // std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
-
-    // ReportMemoryUsage("Resize");
-    {  // compact col index
-      auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
-      auto* d_compact_row_offset =
-          thrust::raw_pointer_cast(ctx.compact_row_offset.data());
-
-      PrefixSum(d_valid_out_degree.data(), d_compact_row_offset + 1,
-                vertices.size(), stream.cuda_stream());
-      valid_esize = ctx.compact_row_offset[vertices.size()];
-
-      // ReportMemoryUsage("Before resize col_sorted_indices topology.");
-      ctx.col_sorted_indices.resize(valid_esize);
-      // ReportMemoryUsage("After resize col_sorted_indices topology.");
-
-      auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
-      auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
-      auto* d_compact_offset =
-          thrust::raw_pointer_cast(ctx.compact_row_offset.data());
-      auto* d_keys_in = thrust::raw_pointer_cast(ctx.col_indices.data());
-      auto* d_keys_out =
-          thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
-      WorkSourceRange<vertex_t> ws_in(*vertices.begin(), vertices.size());
-      ForEachWithIndex(stream, ws_in,
-                       [=] __device__(uint32_t idx, vertex_t u) mutable {
-                         // TODO(mengke): replace it with ForEachOutgoingEdge
-                         size_t tmp = d_compact_offset[idx];
-                         for (auto begin = d_offsets[idx];
-                              begin < d_filling_offset[idx]; begin++) {
-                           d_keys_out[tmp++] = d_keys_in[begin];
-                         }
-                         assert(tmp <= d_compact_offset[idx + 1]);
-                       });
-      stream.Sync();
-
-      // ReportMemoryUsage("before clear col_indices topology.");
-      ctx.col_indices.clear();
-      ctx.col_indices.shrink_to_fit();
-      // ReportMemoryUsage("After clear col_indices topology.");
-      ctx.col_indices.resize(valid_esize);
-      // ReportMemoryUsage("After resize col_indices topology.");
-    }
-    return sorted_col;
   }
 
   void TriangleCounting(const fragment_t& frag, context_t& ctx,
-                        message_manager_t& messages, msg_t* sorted_col) {
+                        message_manager_t& messages) {
     auto dev_frag = frag.DeviceObject();
     auto& stream = messages.stream();
     auto vertices = frag.Vertices();
     auto iv = frag.InnerVertices();
     auto ov = frag.OuterVertices();
+    auto d_tricnt = ctx.tricnt.DeviceObject();
     auto d_mm = messages.DeviceObject();
 
     {
-      WorkSourceRange<vertex_t> ws_in(*vertices.begin(), vertices.size());
-      size_t n_vertices = vertices.size();
-      size_t num_items = valid_esize;  // n_edges;
-      size_t num_segments = n_vertices;
-      auto* d_filling_offset = d_offsets + 1;
-      auto* d_keys_in = thrust::raw_pointer_cast(ctx.col_indices.data());
-      auto* d_keys_out =
-          thrust::raw_pointer_cast(ctx.col_sorted_indices.data());
-
-      stream.Sync();
-      sorted_col = SegmentSort(d_keys_out, d_keys_in, d_offsets,
-                               d_filling_offset, num_items, num_segments);
-    }
-
-    {
       WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
-      auto* d_row_offset =
-          thrust::raw_pointer_cast(ctx.compact_row_offset.data());
+      auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_filling_offset = d_row_offset + 1;
-      auto* d_col_indices = sorted_col;
-      // ReportMemoryUsage("before merge sort");
+      auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
+      ReportMemoryUsage("before merge sort");
       ForEachWithIndexWarp(
           stream, ws_in,
           [=] __device__(size_t lane, size_t idx, vertex_t u) mutable {
-            int triangle_count = 0;
+            size_t triangle_count = 0;
             for (auto eid = d_row_offset[idx]; eid < d_filling_offset[idx];
                  eid++) {
               vertex_t v(d_col_indices[eid]);
@@ -473,30 +209,14 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     auto ov = frag.OuterVertices();
     auto& global_degree = ctx.global_degree;
     auto d_global_degree = global_degree.DeviceObject();
-    auto d_valid_out_degree = ctx.valid_out_degree.DeviceObject();
     auto d_tricnt = ctx.tricnt.DeviceObject();
     auto d_mm = messages.DeviceObject();
 
     if (ctx.stage == 0) {
-      // ReportMemoryUsage("Before Exchange edges.");
-      // Get degree of outer vertices
-      SyncOuterDeg(frag, ctx, messages);
+      TriangleCounting(frag, ctx, messages);
     }
+
     if (ctx.stage == 1) {
-      PolulateAdjList(frag, ctx, messages);
-    }
-
-    if (ctx.stage >= 1 && ctx.stage <= 1 + LCC_M) {
-      TransforAdjList(frag, ctx, messages);
-    }
-
-    if (ctx.stage == 1 + LCC_M) {
-      msg_t* sorted_col = CompressAdjList(frag, ctx, messages);
-      // Sort destinations with segmented sort
-      TriangleCounting(frag, ctx, messages, sorted_col)
-    }
-
-    if (ctx.stage == LCC_M + 2) {
       messages.template ParallelProcess<dev_fragment_t, size_t>(
           dev_frag, [=] __device__(vertex_t v, size_t tri_cnt) mutable {
             dev::atomicAdd64(&d_tricnt[v], tri_cnt);
@@ -505,7 +225,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
     ctx.stage = ctx.stage + 1;
   }
-};  // namespace cuda
+};
+
 }  // namespace cuda
 }  // namespace grape
 #endif  // __CUDACC__
