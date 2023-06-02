@@ -263,8 +263,6 @@ class SegmentedPartitioner<std::string> {
     OutArchive arc;
     CHECK(reader->ReadArchive(arc));
     arc >> fnum_ >> o2f_;
-    o2f_.clear();
-    o2f_.shrink_to_fit();
   }
 
  private:

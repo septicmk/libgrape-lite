@@ -30,7 +30,9 @@ namespace cuda {
 namespace dev {
 
 #define WARP_SIZE 32
-#define MAX_BLOCK_SIZE 256
+#define BLK_SIZE 256
+#define WARP_SHM_SIZE 256
+#define BLK_SHM_SIZE 8192
 
 DEV_HOST_INLINE size_t round_up(size_t numerator, size_t denominator) {
   return (numerator + denominator - 1) / denominator;
@@ -195,6 +197,23 @@ DEV_INLINE T warp_reduce(T val) {
 }
 
 template <typename T>
+DEV_INLINE T block_reduce(T val) {
+  static __shared__ int shared[32];
+  int lane = threadIdx.x & 31;
+  int wid = threadIdx.x >> 5;
+
+  val = warp_reduce(val);
+  if (lane == 0)
+    shared[wid] = val;
+  __syncthreads();
+
+  val = (threadIdx.x < (blockDim.x >> 5)) ? shared[lane] : 0;
+  if (wid == 0)
+    val = warp_reduce(val);
+  return val;
+}
+
+template <typename T>
 DEV_INLINE size_t CountCommonNeighbor(T* u_start, size_t u_len, T* v_start,
                                       size_t v_len) {
   int cosize = 32;
@@ -284,150 +303,90 @@ DEV_INLINE size_t CountCommonNeighbor(T* u_start, size_t u_len, T* v_start,
   return global_cnt;
 }
 
-/*
-#define HASH_INSERT(idx_start, stride)                                       \
-  for (auto e = idx_start + v_start; e < v_end; e += stride) {               \
-    int u = g.get_edge_dst(e);                                               \
-    int key = u & bucket_module;                                             \
-    int index = atomicAdd(&bin_count[key + binOffset], 1);                   \
-    if (index < SHARED_BUCKET_SIZE) {                                        \
-      shared_partition[index * BLOCK_BUCKET_NUM + key + binOffset] = u;      \
-    } else if (index < TR_BUCKET_SIZE) {                                     \
-      index = index - SHARED_BUCKET_SIZE;                                    \
-      partition[index * BLOCK_BUCKET_NUM + binOffset + key + BIN_START] = u; \
-    }                                                                        \
+// |--------- bucket stride ----------|
+// |----------- bin count ------------|
+// |-- bucket num --||-- bucket num --|
+template <typename T>
+class ShmHashTable {
+ public:
+  __device__ __forceinline__ void init(T* shm_data, T* global_data, int offset,
+                                       int bucket_size, int cached_size,
+                                       int bucket_num, int bucket_stride) {
+    bin_count = shm_data;
+    cache = shm_data + bucket_stride;
+    data =
+        global_data + blockIdx.x * bucket_stride * (bucket_size - cached_size);
+    this->offset = offset;
+    this->bucket_size = bucket_size;
+    this->cached_size = cached_size;
+    this->bucket_num = bucket_num;
+    this->bucket_stride = bucket_stride;
   }
 
-#define HASH_LOOKUP(thd_start, stride)                                        \
-  {                                                                           \
-    for (auto e = v_start; e < v_end; e++) {                                  \
-      auto u = g.get_edge_dst(e);                                             \
-      int u_start = g.edge_begin(u);                                          \
-      int u_end = g.edge_end(u);                                              \
-      for (auto i = (thd_start) + u_start; i < u_end; i += (stride)) {        \
-        int w = g.get_edge_dst(i);                                            \
-        int key = w & (bucket_module);                                        \
-        P_counter += linear_search_sm(w, shared_partition, partition,         \
-                                      bin_count, key + binOffset, BIN_START); \
-      }                                                                       \
-    }                                                                         \
-  }
-
-#define BLOCK_HASH_LOOKUP() HASH_LOOKUP(threadIdx.x, blockDim.x)
-
-#define WARP_HASH_LOOKUP() HASH_LOOKUP(thread_lane, WARP_SIZE)
-
-#define WARP_DYNAMIC_CATCH(idx, stride) \
-  if (thread_lane == 0)                 \
-    idx = atomicAdd(stride, 1);         \
-  __syncwarp();                         \
-  idx = __shfl_sync(0xffffffff, idx, 0);
-
-#define BLOCK_DYNAMIC_CATCH(shared_idx, local_idx, stride) \
-  if (threadIdx.x == 0)                                    \
-    shared_idx = atomicAdd(stride, 1);                     \
-  __syncthreads();                                         \
-  local_idx = shared_idx;
-
-#define WARP_NEXT_WORK_CATCH(idx, stride1, stride2) \
-  WARP_DYNAMIC_CATCH(idx, stride1);
-#define BLOCK_NEXT_WORK_CATCH(shared_idx, local_idx, stride1, stride2) \
-  BLOCK_DYNAMIC_CATCH(shared_idx, local_idx, stride1);
-
-template <typename VID, typename VLABEL>
-__global__ void tc_hi_warp_vertex(VID nv, dev::Graph<VID, VLABEL> g,
-                                  VID* partition, AccType* total, int* G_INDEX,
-                                  int block_range) {
-  int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
-  int warp_id = thread_id / WARP_SIZE;  // global warp index
-  int thread_lane =
-      threadIdx.x & (WARP_SIZE - 1);            // thread index within the warp
-  int warp_lane = threadIdx.x / WARP_SIZE;      // warp index within the CTA
-  int num_warps = WARPS_PER_BLOCK * gridDim.x;  // total number of active warps
-
-  __shared__ int bin_count[BLOCK_BUCKET_NUM];
-  __shared__ int shared_partition[BLOCK_BUCKET_NUM * SHARED_BUCKET_SIZE + 1];
-  __shared__ int shared_vertex;
-
-  unsigned long long __shared__ G_counter;
-  if (threadIdx.x == 0) {
-    G_counter = 0;
-  }
-
-  int BIN_START = blockIdx.x * BLOCK_BUCKET_NUM * TR_BUCKET_SIZE;
-  unsigned long long P_counter = 0;
-  int vertex = blockIdx.x;
-  // if vertex's degree is large than threshold(USE_CTA), use block to process
-  while (vertex < block_range) {
-    int degree = g.edge_end(vertex) - g.edge_begin(vertex);
-    // Notice: this break need sort graph by degree descending
-    if (degree <= USE_CTA)
-      break;
-    int v_start = g.edge_begin(vertex);
-    int v_end = g.edge_end(vertex);
-    int now = threadIdx.x + v_start;
-    int bucket_module = BLOCK_BUCKET_NUM - 1;
-    int binOffset = 0;
-    // step1: clean hash bucket
-    for (int i = threadIdx.x; i < BLOCK_BUCKET_NUM; i += blockDim.x)
+  __device__ __forceinline__ void clear(int thread_lane, int csize) {
+    for (int i = offset + thread_lane; i < offset + bucket_num; i += csize) {
       bin_count[i] = 0;
-    __syncthreads();
-
-    HASH_INSERT(threadIdx.x, blockDim.x);
-    __syncthreads();
-    BLOCK_HASH_LOOKUP();
-    __syncthreads();
-    BLOCK_NEXT_WORK_CATCH(shared_vertex, vertex, &G_INDEX[1], gridDim.x);
-    __syncthreads();
-  }
-  __syncthreads();
-  // //if vertex's degree is small than threshold(USE_CTA), use warp to process
-  vertex = block_range + warp_id;
-  while (vertex < nv) {
-    int v_start = g.edge_begin(vertex);
-    int v_end = g.edge_end(vertex);
-    int degree = v_end - v_start;
-    // Notice: this break need sort graph by degree descending
-    if (degree < USE_WARP)
-      break;
-    int bucket_module = WARP_BUCKET_NUM - 1;
-    int binOffset = warp_lane * WARP_BUCKET_NUM;
-    // step1: clean hash bucket
-    for (int i = binOffset + thread_lane; i < binOffset + WARP_BUCKET_NUM;
-         i += WARP_SIZE)
-      bin_count[i] = 0;
-    __syncwarp();
-
-    // step2: insert v'neighbour u into hash bucket
-    //! Notice: use g.N + g.deg + ptr will cause 2-3ms time waste!
-    HASH_INSERT(thread_lane, WARP_SIZE);
-    __syncwarp();
-    WARP_HASH_LOOKUP();
-    __syncwarp();
-    WARP_NEXT_WORK_CATCH(vertex, &G_INDEX[2], num_warps);
-    __syncwarp();
+    }
   }
 
-  atomicAdd(&G_counter, P_counter);
-  __syncthreads();
-  if (threadIdx.x == 0) {
-    atomicAdd(&total[0], G_counter);
+  __device__ __forceinline__ bool insert(T element) {
+    int key = element & (bucket_num - 1);
+    int index = atomicAdd(&bin_count[key + offset], 1);
+    if (index < cached_size) {
+      cache[index * bucket_stride + offset + key] = element;
+    } else if (index < bucket_size) {
+      index -= cached_size;
+      data[index * bucket_stride + offset + key] = element;
+    } else {
+      // printf("%d %d %d %d %d\n", threadIdx.x, key, offset, index, element);
+      // assert(false);
+      return false;
+    }
+    return true;
   }
-}
-*/
+
+  __device__ __forceinline__ bool lookup(T element) {
+    int key = element & (bucket_num - 1);
+    int index = bin_count[key + offset];
+    assert(index < bucket_size);
+    int check_cache_depth = index < cached_size ? index : cached_size;
+    // check in cache.
+    for (int step = 0; step < check_cache_depth; ++step) {
+      if (cache[step * bucket_stride + offset + key] == element) {
+        return true;
+      }
+    }
+    // check in global memory.
+    for (int step = 0; step < index - check_cache_depth; ++step) {
+      if (data[step * bucket_stride + offset + key] == element) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  T* bin_count;
+  T* cache;
+  T* data;
+  int offset;
+  int bucket_size;
+  int cached_size;
+  int bucket_num;
+  int bucket_stride;
+};
 
 template <typename T>
-DEV_INLINE int64_t binary_search_2phase(T* list, T* cache, T key, size_t size) {
-  int p = (threadIdx.x / WARP_SIZE) * WARP_SIZE;
+DEV_INLINE int64_t binary_search_2phase(T* list, T* cache, T key, size_t size,
+                                        size_t shm_per_warp) {
   int mid = 0;
   // phase 1: search in the cache
   int bottom = 0;
-  int top = WARP_SIZE;
+  int top = shm_per_warp;
   while (top > bottom + 1) {
     mid = (top + bottom) / 2;
-    T y = cache[p + mid];
+    T y = cache[mid];
     if (key == y)
-      return mid * size / WARP_SIZE;
+      return mid * size / shm_per_warp;
     if (key < y)
       top = mid;
     if (key > y)
@@ -435,8 +394,8 @@ DEV_INLINE int64_t binary_search_2phase(T* list, T* cache, T key, size_t size) {
   }
 
   // phase 2: search in global memory
-  bottom = bottom * size / WARP_SIZE;
-  top = top * size / WARP_SIZE - 1;
+  bottom = bottom * size / shm_per_warp;
+  top = top * size / shm_per_warp - 1;
   while (top >= bottom) {
     mid = (top + bottom) / 2;
     T y = list[mid];
@@ -458,7 +417,12 @@ DEV_INLINE size_t intersect_num_bs_cache(T* a, size_t size_a, T* b,
   int thread_lane =
       threadIdx.x & (WARP_SIZE - 1);        // thread index within the warp
   int warp_lane = threadIdx.x / WARP_SIZE;  // warp index within the CTA
-  __shared__ T cache[MAX_BLOCK_SIZE];
+  int nwarp = BLK_SIZE / WARP_SIZE;
+  __shared__ T cache[WARP_SHM_SIZE];
+  int shm_size = WARP_SHM_SIZE;
+  int shm_per_warp = shm_size / nwarp;
+  int shm_per_thd = shm_size / BLK_SIZE;
+  T* my_cache = cache + warp_lane * shm_per_warp;
   size_t num = 0;
   T* lookup = a;
   T* search = b;
@@ -470,13 +434,16 @@ DEV_INLINE size_t intersect_num_bs_cache(T* a, size_t size_a, T* b,
     lookup_size = size_b;
     search_size = size_a;
   }
-  cache[warp_lane * WARP_SIZE + thread_lane] =
-      search[thread_lane * search_size / WARP_SIZE];
+  for (int i = 0; i < shm_per_thd; ++i) {
+    my_cache[i * WARP_SIZE + thread_lane] =
+        search[(thread_lane + i * WARP_SIZE) * search_size / shm_per_warp];
+  }
   __syncwarp();
 
   for (auto i = thread_lane; i < lookup_size; i += WARP_SIZE) {
     auto key = lookup[i];  // each thread picks a vertex as the key
-    if (binary_search_2phase(search, cache, key, search_size) >= 0) {
+    if (binary_search_2phase(search, my_cache, key, search_size,
+                             shm_per_warp) >= 0) {
       num += 1;
       callback(key);
     }
@@ -493,6 +460,58 @@ DEV_INLINE size_t intersect_num(T* a, size_t size_a, T* b, size_t size_b,
   return warp_cnt;
 }
 
+template <typename T, typename Y>
+DEV_INLINE size_t intersect_num_bs_cache_blk(T* a, size_t size_a, T* b,
+                                             size_t size_b, Y callback) {
+  if (size_a == 0 || size_b == 0)
+    return 0;
+  int thread_lane =
+      threadIdx.x & (BLK_SIZE - 1);        // thread index within the warp
+  int warp_lane = threadIdx.x / BLK_SIZE;  // warp index within the CTA
+  int nwarp = BLK_SIZE / BLK_SIZE;
+  __shared__ T cache[BLK_SHM_SIZE];
+  int shm_size = BLK_SHM_SIZE;
+  int shm_per_warp = shm_size / nwarp;
+  int shm_per_thd = shm_size / BLK_SIZE;
+  T* my_cache = cache + warp_lane * shm_per_warp;
+  size_t num = 0;
+  T* lookup = a;
+  T* search = b;
+  size_t lookup_size = size_a;
+  size_t search_size = size_b;
+  if (size_a > size_b) {
+    lookup = b;
+    search = a;
+    lookup_size = size_b;
+    search_size = size_a;
+  }
+  for (int i = 0; i < shm_per_thd; ++i) {
+    my_cache[i * BLK_SIZE + thread_lane] =
+        search[(thread_lane + i * BLK_SIZE) * search_size / shm_per_warp];
+  }
+  __syncthreads();
+
+  for (auto i = thread_lane; i < lookup_size; i += BLK_SIZE) {
+    auto key = lookup[i];  // each thread picks a vertex as the key
+    if (binary_search_2phase(search, my_cache, key, search_size,
+                                 shm_per_warp) >= 0) {
+      num += 1;
+      callback(key);
+    }
+  }
+  return num;
+}
+
+template <typename T, typename Y>
+DEV_INLINE size_t intersect_num_blk(T* a, size_t size_a, T* b, size_t size_b,
+                                    Y callback) {
+  size_t t_cnt = intersect_num_bs_cache_blk(a, size_a, b, size_b, callback);
+  __syncthreads();
+  size_t blk_cnt = block_reduce(t_cnt);
+  __syncthreads();
+  return blk_cnt;
+}
+
 template <typename T>
 DEV_INLINE size_t intersect_num_bs_cache_directed(T* a, size_t size_a, T* b,
                                                   size_t size_b, char* wb) {
@@ -501,7 +520,7 @@ DEV_INLINE size_t intersect_num_bs_cache_directed(T* a, size_t size_a, T* b,
   int thread_lane =
       threadIdx.x & (WARP_SIZE - 1);        // thread index within the warp
   int warp_lane = threadIdx.x / WARP_SIZE;  // warp index within the CTA
-  __shared__ T cache[MAX_BLOCK_SIZE];
+  __shared__ T cache[WARP_SHM_SIZE];
   T* lookup = a;
   T* search = b;
   size_t lookup_size = size_a;
@@ -521,7 +540,8 @@ DEV_INLINE size_t intersect_num_bs_cache_directed(T* a, size_t size_a, T* b,
 
   for (auto i = thread_lane; i < lookup_size; i += WARP_SIZE) {
     auto key = lookup[i];  // each thread picks a vertex as the key
-    int64_t search_loc = binary_search_2phase(search, cache, key, search_size);
+    int64_t search_loc =
+        binary_search_2phase(search, cache, key, search_size, WARP_SIZE);
     int64_t lookup_loc = i;
     if (search_loc >= 0) {
       if (is_reverse) {

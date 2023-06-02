@@ -51,6 +51,13 @@ void LaunchKernelFix(const Stream& stream, size_t size, F f, Args&&... args) {
   KernelWrapper<<<256, 256, 0, stream.cuda_stream()>>>(
       f, std::forward<Args>(args)...);
 }
+
+template <typename F, typename... Args>
+void LaunchKernelFixL(const Stream& stream, size_t size, F f, Args&&... args) {
+  KernelWrapper<<<1024, 1024, 0, stream.cuda_stream()>>>(
+      f, std::forward<Args>(args)...);
+}
+
 }  // namespace cuda
 }  // namespace grape
 #endif  // GRAPE_CUDA_UTILS_LAUNCHER_H_

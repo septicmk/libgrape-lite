@@ -63,10 +63,10 @@ class LCCPContext : public grape::VoidContext<FRAG_T> {
       (*row_offset)[idx + 1] = (*row_offset)[idx] + nbrs.size();
     }
     size_t edge_size = (*row_offset)[size];
-    std::cout << "edge size CPU: " << edge_size << std::endl;
-    cuda::ReportHostMemoryUsage("before cpu csr malloc");
-    *sorted_col = (vid_t*) malloc(((*row_offset)[size]) * sizeof(vid_t));
-    cuda::ReportHostMemoryUsage("after cpu csr malloc");
+    // std::cout << "edge size CPU: " << edge_size << std::endl;
+    // cuda::ReportHostMemoryUsage("before cpu csr malloc");
+    *sorted_col = (vid_t*) malloc(edge_size * sizeof(vid_t));
+    // cuda::ReportHostMemoryUsage("after cpu csr malloc");
     for (auto v : vertices) {
       auto& nbrs = complete_neighbor[v];
       size_t base = (*row_offset)[v.GetValue()];
@@ -74,7 +74,7 @@ class LCCPContext : public grape::VoidContext<FRAG_T> {
         (*sorted_col)[base + i] = nbrs[i].GetValue();
       }
     }
-    cuda::ReportHostMemoryUsage("after cpu csr filling");
+    // cuda::ReportHostMemoryUsage("after cpu csr filling");
   }
 
   typename FRAG_T::template vertex_array_t<uint32_t> global_degree;
@@ -130,7 +130,7 @@ class LCCP : public ParallelAppBase<FRAG_T, LCCPContext<FRAG_T>>,
     if (ctx.stage >= 0 && ctx.stage <= LCC_M) {
       int K = ctx.stage;
 
-      std::cout << "Transfer adj list in " << K << "iteration" << std::endl;
+      // std::cout << "Transfer adj list in " << K << "iteration" << std::endl;
       if (K > 0) {
         // cuda::ReportHostMemoryUsage("before receieve ");
         messages.ParallelProcess<fragment_t, std::vector<vid_t>>(
@@ -165,7 +165,7 @@ class LCCP : public ParallelAppBase<FRAG_T, LCCPContext<FRAG_T>>,
           for (auto e = es.begin() + chunk_start; e != es.begin() + chunk_end;
                e++) {
             auto u = e->get_neighbor();
-            if (ctx.global_degree[u] < ctx.global_degree[v]) {
+            if (ctx.global_degree[u] > ctx.global_degree[v]) {
               nbr_vec.push_back(u);
               msg_vec.push_back(frag.Vertex2Gid(u));
             } else if (ctx.global_degree[u] == ctx.global_degree[v]) {
@@ -192,7 +192,7 @@ class LCCP : public ParallelAppBase<FRAG_T, LCCPContext<FRAG_T>>,
         std::sort(nbr_vec.begin(), nbr_vec.end());
       });
 
-      cuda::ReportHostMemoryUsage("After sort");
+      // cuda::ReportHostMemoryUsage("After sort");
     }
     ctx.stage = ctx.stage + 1;
   }
