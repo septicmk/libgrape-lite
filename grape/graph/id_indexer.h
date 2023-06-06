@@ -63,7 +63,6 @@ struct KeyBuffer {
   static void deserialize(std::unique_ptr<IOADAPTOR_T>& reader, type& buffer) {
     size_t size;
     CHECK(reader->Read(&size, sizeof(size_t)));
-    printf("key buffer size is :%ld\n", size);
     if (size > 0) {
       buffer.resize(size);
       CHECK(reader->Read(buffer.data(), size * sizeof(T)));

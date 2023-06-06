@@ -289,7 +289,7 @@ T* SegmentSort(T* d_keys_in,
 
 template <typename I, typename O>
 // clang-format off
-void PrefixSum(
+void PrefixSum64(
     I* d_keys_in,
     O* d_keys_out,
     size_t size,
@@ -306,6 +306,30 @@ void PrefixSum(
   CHECK_CUDA(cudaMallocAsync(&d_temp_storage, temp_storage_bytes, d_stream));
   CHECK_CUDA(PrefixSumKernel64(d_temp_storage, temp_storage_bytes, d_keys_in,
                                d_keys_out, size, d_stream));
+  CHECK_CUDA(cudaFreeAsync(d_temp_storage, d_stream));
+}
+
+template <typename I, typename O>
+// clang-format off
+void PrefixSum(
+    I* d_keys_in,
+    O* d_keys_out,
+    size_t size,
+    cudaStream_t d_stream
+    ) {
+  // clang-format on
+  void* d_temp_storage = nullptr;
+  size_t temp_storage_bytes = 0;
+  const size_t MAX_SIZE = (1ul << 31) - 1ul;
+  assert(size <= MAX_SIZE);
+
+  CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
+                                           d_keys_in, d_keys_out, size,
+                                           d_stream));
+  CHECK_CUDA(cudaMallocAsync(&d_temp_storage, temp_storage_bytes, d_stream));
+  CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
+                                           d_keys_in, d_keys_out, size,
+                                           d_stream));
   CHECK_CUDA(cudaFreeAsync(d_temp_storage, d_stream));
 }
 

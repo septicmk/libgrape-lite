@@ -212,6 +212,44 @@ DEV_INLINE T block_reduce(T val) {
     val = warp_reduce(val);
   return val;
 }
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+template <typename T>
+DEV_INLINE T warpReduceMax(T val) {
+  for (int offset = 32 >> 1; offset > 0; offset >>= 1) {
+    T tmp = SHFL_DOWN(val, offset);
+    val = MAX(tmp, val);
+  }
+  return val;
+}
+
+template <typename T>
+DEV_INLINE T blockReduceMax(T val) {
+  static __shared__ T shared[32];
+  int lane = threadIdx.x & 31;
+  int wid = threadIdx.x >> 5;
+
+  val = warpReduceMax(val);
+  if (lane == 0)
+    shared[wid] = val;
+  __syncthreads();
+
+  val = (threadIdx.x < blockDim.x / 32) ? shared[lane] : 0;
+  if (wid == 0)
+    val = warpReduceMax(val);
+  return val;
+}
+template <typename T>
+DEV_INLINE T blockAllReduceMax(T val) {
+  __shared__ T global;
+  val = blockReduceMax(val);
+  if (threadIdx.x == 0) {
+    global = val;
+  }
+  __syncthreads();
+  val = global;
+  __syncthreads();
+  return val;
+}
 
 template <typename T>
 DEV_INLINE size_t CountCommonNeighbor(T* u_start, size_t u_len, T* v_start,
@@ -302,6 +340,95 @@ DEV_INLINE size_t CountCommonNeighbor(T* u_start, size_t u_len, T* v_start,
   }
   return global_cnt;
 }
+
+template <typename T>
+class MFLCounter {
+ public:
+  __device__ __forceinline__ void init(T* shm_data, T* global_data,
+                                       T* global_cnt, int ht_size,
+                                       size_t cms_size, size_t cms_k) {
+    this->shm_ht = shm_data;
+    this->shm_ht_size = ht_size;
+    this->shm_cnt = shm_data + ht_size;
+
+    this->cms_size = cms_size;
+    this->cms_k = cms_k;
+    this->cms_cnt = shm_data + 2 * ht_size;
+
+    this->global_ht = global_data;
+    this->global_cnt = global_cnt;
+  }
+
+  __device__ __forceinline__ int insert_shm_ht(T l) {
+    size_t idx = l % shm_ht_size;
+    T* slot = &shm_ht[idx];
+    uint32_t* counter = &shm_cnt[idx];
+    T assumed1 = 0xffffffff;
+    T assumed2 = l;
+    // try update
+    T old = atomicCAS(slot, assumed1, l);
+    if (old != assumed1 && old != assumed2) {
+      return -1;
+    }
+    return atomicAdd(counter, 1) + 1;
+  }
+
+  __device__ __forceinline__ int query_shm_ht(T l) {
+    size_t idx = l % shm_ht_size;
+    T* slot = &shm_ht[idx];
+    uint32_t* counter = &shm_cnt[idx];
+
+    T assumed = l;
+    T old = *slot;
+    if (old != assumed) {
+      return -1;
+    }
+    return *counter;
+  }
+
+  __device__ __forceinline__ int insert_shm_cms(T l) {
+    T pow = 1;
+    uint32_t min_upperbound = 0x7fffffff;
+    for (int i = 0; i < cms_k; ++i) {
+      pow = pow * l;
+      T key = pow + i * l + i;  // overflow is benign
+      size_t idx = key % cms_size;
+      uint32_t* counter = cms_cnt + i * cms_size + idx;
+      uint32_t value = atomicAdd(counter, 1) + 1;
+      min_upperbound = min_upperbound > value ? value : min_upperbound;
+    }
+    return min_upperbound;
+  }
+
+  __device__ __forceinline__ int insert_global_ht(T l, size_t begin,
+                                                  size_t end) {
+    size_t size = end - begin;
+    size_t idx = l % size;
+    T assumed1 = 0xffffffff;
+    T assumed2 = l;
+    for (;;) {
+      T old = atomicCAS(&global_ht[begin + idx], assumed1, l);
+      if (old != assumed1 && old != assumed2) {
+        idx = (idx + 1) % size;
+      } else {
+        break;
+      }
+    }
+    return atomicAdd(&global_cnt[begin + idx], 1) + 1;
+  }
+
+ private:
+  T* shm_ht;
+  uint32_t* shm_cnt;
+  size_t shm_ht_size;
+
+  size_t cms_k;
+  size_t cms_size;
+  uint32_t* cms_cnt;
+
+  T* global_ht;
+  uint32_t* global_cnt;
+};
 
 // |--------- bucket stride ----------|
 // |----------- bin count ------------|
@@ -494,7 +621,7 @@ DEV_INLINE size_t intersect_num_bs_cache_blk(T* a, size_t size_a, T* b,
   for (auto i = thread_lane; i < lookup_size; i += BLK_SIZE) {
     auto key = lookup[i];  // each thread picks a vertex as the key
     if (binary_search_2phase(search, my_cache, key, search_size,
-                                 shm_per_warp) >= 0) {
+                             shm_per_warp) >= 0) {
       num += 1;
       callback(key);
     }

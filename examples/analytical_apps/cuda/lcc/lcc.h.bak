@@ -236,7 +236,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           d_valid_out_degree[v.GetValue()] = degree;
         });
 
-    PrefixSum<msg_t, size_t>(d_valid_out_degree, d_row_offset,
+    PrefixSum64<msg_t, size_t>(d_valid_out_degree, d_row_offset,
                              vertices.size() + 1, stream.cuda_stream());
 
     CHECK_CUDA(cudaMemcpyAsync(d_filling_offset.data(), d_row_offset,
@@ -388,7 +388,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto* d_compact_row_offset =
           thrust::raw_pointer_cast(ctx.compact_row_offset.data());
 
-      PrefixSum(d_valid_out_degree, d_compact_row_offset, vertices.size() + 1,
+      PrefixSum64(d_valid_out_degree, d_compact_row_offset, vertices.size() + 1,
                 stream.cuda_stream());
       stream.Sync();
       valid_esize = ctx.compact_row_offset[vertices.size()];

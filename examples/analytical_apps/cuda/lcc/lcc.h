@@ -129,7 +129,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
   static constexpr grape::LoadStrategy load_strategy =
       grape::LoadStrategy::kOnlyOut;
-  static constexpr bool need_build_device_vm = true;  // for debug
+  // static constexpr bool need_build_device_vm = true;  // for debug
 
   void PEval(const fragment_t& frag, context_t& ctx,
              message_manager_t& messages) {
@@ -193,7 +193,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       size_t cached_size = 31;
       bins.resize(bucket_stride * (bucket_size - cached_size) * nblocks, 0);
       auto* global_data = thrust::raw_pointer_cast(bins.data());
-      //ReportMemoryUsage("Before kernel");
+      // ReportMemoryUsage("Before kernel");
       ForEachWithIndexWarpShared(
           stream, ws_in,
           [=] __device__(uint32_t * shm, size_t lane, size_t cid, size_t csize,
@@ -286,7 +286,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_filling_offset = d_row_offset + 1;
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
-      //ReportMemoryUsage("Before kernel");
+      // ReportMemoryUsage("Before kernel");
       ForEachWithIndexBlockDynamic(
           stream, ws_in,
           [=] __device__(size_t lane, size_t idx, vertex_t u) mutable {

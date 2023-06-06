@@ -30,7 +30,7 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
   using vid_t = typename FRAG_T::vid_t;
   using oid_t = typename FRAG_T::oid_t;
   using vertex_t = typename FRAG_T::vertex_t;
-  using label_t = oid_t;
+  using label_t = uint32_t;
 
   explicit CDLPContext(const FRAG_T& frag) : grape::VoidContext<FRAG_T>(frag) {}
 
@@ -50,27 +50,14 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
     this->max_round = max_round;
     this->lb = app_config.lb;
 
-    for (auto v : iv) {
-      oenum += this->fragment().GetOutgoingAdjList(v).Size();
-    }
-
-    if (frag.load_strategy == grape::LoadStrategy::kBothOutIn) {
-      for (auto v : iv) {
-        oenum += this->fragment().GetIncomingAdjList(v).Size();
-      }
-    }
-
     labels.Init(vertices);
     new_label.Init(iv, thrust::make_pair(0, false));
 
-    h_row_offset.resize(iv.size() + 1);
-    d_row_offset.resize(iv.size() + 1);
+    hi_q.Init(iv.size());
+    lo_q.Init(iv.size());
 
-    h_col_indices.resize(oenum);
-    d_col_indices.resize(oenum);
-    // ReportMemoryUsage("Before Cache eges.");
-    d_sorted_col_indices.resize(oenum);
-    // ReportMemoryUsage("After Cache eges.");
+    d_lo_row_offset.resize(iv.size() + 1);
+    d_hi_row_offset.resize(iv.size() + 1);
 
     for (auto v : iv) {
       labels[v] = frag.GetInnerVertexId(v);
@@ -103,17 +90,22 @@ class CDLPContext : public grape::VoidContext<FRAG_T> {
     }
   }
 
-  size_t oenum = 0;
   int step;
   int max_round;
   LoadBalancing lb;
   VertexArray<label_t, vid_t> labels;
   VertexArray<thrust::pair<label_t, bool>, vid_t> new_label;
-  pinned_vector<size_t> h_row_offset;
-  pinned_vector<label_t> h_col_indices;
-  thrust::device_vector<size_t> d_row_offset;
+
+  Queue<vertex_t, vid_t> hi_q, lo_q;
+  // low-degree: segment sort + scan
+  thrust::device_vector<size_t> d_lo_row_offset;
   thrust::device_vector<label_t> d_col_indices;
   thrust::device_vector<label_t> d_sorted_col_indices;
+  // high-degree: shm_ht + CMS + gm_ht
+  thrust::device_vector<size_t> d_hi_row_offset;
+  thrust::device_vector<label_t> d_hi_col_indices;
+  thrust::device_vector<label_t> d_hi_label_hash;
+  thrust::device_vector<uint32_t> d_hi_label_cnt;
 
 #ifdef PROFILING
   double get_msg_time;
@@ -138,51 +130,24 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
       MessageStrategyTrait<FRAG_T::load_strategy>::message_strategy;
   static constexpr grape::LoadStrategy load_strategy =
       grape::LoadStrategy::kOnlyOut;
+  static constexpr bool need_build_device_vm = true;  // for debug
 
-  template <typename ITER_FUNC_T, typename VID_T>
-  inline void ForEachHost(const VertexRange<VID_T>& range,
-                          const ITER_FUNC_T& iter_func, int chunk_size = 1024) {
-    std::vector<std::thread> threads(std::thread::hardware_concurrency());
-    std::atomic<VID_T> cur(range.begin_value());
-    VID_T end = range.end_value();
-
-    for (uint32_t i = 0; i < threads.size(); ++i) {
-      threads[i] = std::thread(
-          [&cur, chunk_size, &iter_func, end](uint32_t tid) {
-            while (true) {
-              VID_T cur_beg = std::min(cur.fetch_add(chunk_size), end);
-              VID_T cur_end = std::min(cur_beg + chunk_size, end);
-              if (cur_beg == cur_end) {
-                break;
-              }
-              VertexRange<VID_T> cur_range(cur_beg, cur_end);
-              for (auto u : cur_range) {
-                iter_func(tid, u);
-              }
-            }
-          },
-          i);
-    }
-
-    for (auto& thrd : threads) {
-      thrd.join();
-    }
-  }
-
-  void PropagateLabel(const fragment_t& frag, context_t& ctx,
-                      message_manager_t& messages) {
+  void PropagateLabel_hi(const fragment_t& frag, context_t& ctx,
+                         message_manager_t& messages) {
     auto d_frag = frag.DeviceObject();
     auto d_mm = messages.DeviceObject();
     auto& stream = messages.stream();
     auto iv = frag.InnerVertices();
-    WorkSourceRange<vertex_t> ws_iv(*iv.begin(), iv.size());
-    auto* p_d_col_indices = thrust::raw_pointer_cast(ctx.d_col_indices.data());
     auto d_labels = ctx.labels.DeviceObject();
-    auto* d_offsets = thrust::raw_pointer_cast(ctx.d_row_offset.data());
     bool isDirected = frag.load_strategy == grape::LoadStrategy::kBothOutIn;
+    auto* d_offsets = thrust::raw_pointer_cast(ctx.d_hi_row_offset.data());
+    auto* p_d_col_indices =
+        thrust::raw_pointer_cast(ctx.d_hi_col_indices.data());
+    auto& hi_q = ctx.hi_q;
+    auto d_new_label = ctx.new_label.DeviceObject();
 
-    // TODO(mengke.mk) if values are not change, we can bypass the copy. or use
-    // push mode.
+    WorkSourceArray<vertex_t> ws_iv(hi_q.data(), hi_q.size(stream));
+    double T_update = grape::GetCurrentTime();
     if (isDirected) {
       ForEachIncomingEdge(
           stream, d_frag, ws_iv,
@@ -207,40 +172,210 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
           stream, d_frag, ws_iv,
           [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
             vertex_t v = nbr.get_neighbor();
-            size_t eid = d_frag.GetOutgoingEdgeIndex(nbr);
+            size_t eid =
+                d_offsets[u.GetValue()] + d_frag.GetOutgoingEdgeIndex(u, nbr);
             p_d_col_indices[eid] = d_labels[v];
           },
           ctx.lb);
     }
+    stream.Sync();
+    T_update = grape::GetCurrentTime() - T_update;
+
+    auto* local_labels = thrust::raw_pointer_cast(ctx.d_hi_col_indices.data());
+    auto* global_data = thrust::raw_pointer_cast(ctx.d_hi_label_hash.data());
+    auto* label_cnt = thrust::raw_pointer_cast(ctx.d_hi_label_cnt.data());
+
+    thrust::fill(ctx.d_hi_label_hash.begin(), ctx.d_hi_label_hash.end(),
+                 0xffffffff);
+    thrust::fill(ctx.d_hi_label_cnt.begin(), ctx.d_hi_label_cnt.end(), 0);
+
+    size_t bucket_size = 1024;
+    size_t cms_size = 256;
+    size_t cms_k = 16;
+
+    ForEachWithIndexBlockShared(
+        stream, ws_iv,
+        [=] __device__(uint32_t * shm, size_t lane, size_t cid, size_t csize,
+                       size_t cnum, size_t idx, vertex_t u) mutable {
+          for (int i = threadIdx.x; i < 8192; i += blockDim.x) {
+            if (i < bucket_size) {
+              shm[i] = 0xffffffff;
+            } else {
+              shm[i] = 0;
+            }
+          }
+          __syncthreads();
+
+          idx = u.GetValue();
+          size_t begin = d_offsets[idx], end = d_offsets[idx + 1];
+          if (end == begin) {
+            return;
+          }
+
+          dev::MFLCounter<uint32_t> counter;
+          counter.init(shm, global_data, label_cnt, bucket_size, cms_size,
+                       cms_k);
+          __shared__ label_t new_label;
+
+          label_t max_label = 0;
+          int ht_score = 0;
+          int cms_score = 0;
+          int gt_score = 0;
+
+          // step 1: try CMS speculatively
+          label_t local_label = 0xffffffff;
+          int sh_ht_freq = -1;
+          int sh_cms_freq = -1;
+          __syncthreads();
+          for (auto eid = begin + threadIdx.x; eid < end; eid += blockDim.x) {
+            auto l = local_labels[eid];
+            int current_sh_ht_freq = counter.insert_shm_ht(l);
+            int current_sh_cms_freq = -1;
+
+            if (current_sh_ht_freq < 0) {
+              current_sh_cms_freq = counter.insert_shm_cms(l);
+            }
+
+            // update locally
+            int current = MAX(current_sh_ht_freq, current_sh_cms_freq);
+            int old = MAX(sh_ht_freq, sh_cms_freq);
+            if (current > old || current == old && local_label > l) {
+              local_label = l;
+              sh_ht_freq = current_sh_ht_freq;
+              sh_cms_freq = current_sh_cms_freq;
+            }
+          }
+          __syncthreads();
+
+          // step 2: check whether our CMS works
+          ht_score = sh_ht_freq > 0 ? sh_ht_freq : 0;
+          cms_score = sh_cms_freq > 0 ? sh_cms_freq : 0;
+          max_label = local_label;
+          __syncthreads();
+          max_label = dev::blockAllReduceMax(max_label);
+          ht_score = dev::blockAllReduceMax(ht_score);
+          cms_score = dev::blockAllReduceMax(cms_score);
+          __syncthreads();
+          if (ht_score > cms_score) {  // shared_memory is enough
+            if (threadIdx.x == 0) {
+              new_label = max_label;
+            }
+            __syncthreads();
+            if (sh_ht_freq == ht_score) {
+              atomicMin(&new_label, local_label);
+            }
+            __syncthreads();
+          } else {
+            // step 3: the bad case, we have to do it again
+            label_t local_label = 0xffffffff;
+            int ht_freq = -1;
+            for (auto eid = begin + threadIdx.x; eid < end; eid += blockDim.x) {
+              auto l = local_labels[eid];
+              int current_ht_freq = counter.query_shm_ht(l);
+
+              if (current_ht_freq < 0) {
+                assert(current_ht_freq != 0);
+                current_ht_freq = counter.insert_global_ht(l, begin, end);
+              }
+
+              // update locally
+              if (current_ht_freq > ht_freq ||
+                  current_ht_freq == ht_freq && local_label > l) {
+                local_label = l;
+                ht_freq = current_ht_freq;
+              }
+            }
+            __syncthreads();
+
+            // step 4: now we have the true count.
+            max_label = local_label;
+            gt_score = ht_freq > 0 ? ht_freq : 0;
+            max_label = dev::blockAllReduceMax(max_label);
+            gt_score = dev::blockAllReduceMax(gt_score);
+            __syncthreads();
+
+            if (threadIdx.x == 0) {
+              new_label = max_label;
+            }
+            __syncthreads();
+
+            if (gt_score == ht_freq) {
+              atomicMin(&new_label, local_label);
+            }
+            __syncthreads();
+          }
+          __syncthreads();
+
+          // step 5: process the new label
+          if (threadIdx.x == 0) {
+            if (new_label != d_labels[u]) {
+              d_new_label[u].first = new_label;
+              d_new_label[u].second = true;
+              if (isDirected) {
+                d_mm.template SendMsgThroughEdges(d_frag, u, new_label);
+              } else {
+                d_mm.template SendMsgThroughOEdges(d_frag, u, new_label);
+              }
+            } else {
+              d_new_label[u].second = false;
+            }
+          }
+        });
+  }
+
+  void PropagateLabel_lo(const fragment_t& frag, context_t& ctx,
+                         message_manager_t& messages) {
+    auto d_frag = frag.DeviceObject();
+    auto d_mm = messages.DeviceObject();
+    auto& stream = messages.stream();
+    auto iv = frag.InnerVertices();
+    auto* p_d_col_indices = thrust::raw_pointer_cast(ctx.d_col_indices.data());
+    auto d_labels = ctx.labels.DeviceObject();
+    auto* d_offsets = thrust::raw_pointer_cast(ctx.d_lo_row_offset.data());
+    bool isDirected = frag.load_strategy == grape::LoadStrategy::kBothOutIn;
+    auto& lo_q = ctx.lo_q;
+
+    WorkSourceArray<vertex_t> ws_iv(lo_q.data(), lo_q.size(stream));
+    double T_update = grape::GetCurrentTime();
+    if (isDirected) {
+      ForEachIncomingEdge(
+          stream, d_frag, ws_iv,
+          [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+            vertex_t v = nbr.get_neighbor();
+            size_t eid =
+                d_offsets[u.GetValue()] + d_frag.GetIncomingEdgeIndex(u, nbr);
+            p_d_col_indices[eid] = d_labels[v];
+          },
+          ctx.lb);
+      ForEachOutgoingEdge(
+          stream, d_frag, ws_iv,
+          [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+            vertex_t v = nbr.get_neighbor();
+            size_t eid = d_offsets[u.GetValue()] + d_frag.GetLocalInDegree(u) +
+                         d_frag.GetOutgoingEdgeIndex(u, nbr);
+            p_d_col_indices[eid] = d_labels[v];
+          },
+          ctx.lb);
+    } else {
+      ForEachOutgoingEdge(
+          stream, d_frag, ws_iv,
+          [=] __device__(vertex_t u, const nbr_t& nbr) mutable {
+            vertex_t v = nbr.get_neighbor();
+            size_t eid =
+                d_offsets[u.GetValue()] + d_frag.GetOutgoingEdgeIndex(u, nbr);
+            p_d_col_indices[eid] = d_labels[v];
+          },
+          ctx.lb);
+    }
+    stream.Sync();
+    T_update = grape::GetCurrentTime() - T_update;
 
     auto* local_labels = thrust::raw_pointer_cast(ctx.d_col_indices.data());
 
-    if (0) {
-      CHECK_CUDA(
-          cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.h_col_indices.data()),
-                          thrust::raw_pointer_cast(ctx.d_col_indices.data()),
-                          sizeof(label_t) * ctx.h_col_indices.size(),
-                          cudaMemcpyDeviceToHost, stream.cuda_stream()));
-      stream.Sync();
-      ForEachHost(
-          iv,
-          [&ctx](int tid, vertex_t v) {
-            auto idx = v.GetValue();
-            size_t begin = ctx.h_row_offset[idx],
-                   end = ctx.h_row_offset[idx + 1];
-
-            std::sort(ctx.h_col_indices.begin() + begin,
-                      ctx.h_col_indices.begin() + end);
-          },
-          2048);
-      CHECK_CUDA(
-          cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.d_col_indices.data()),
-                          thrust::raw_pointer_cast(ctx.h_col_indices.data()),
-                          sizeof(label_t) * ctx.h_col_indices.size(),
-                          cudaMemcpyHostToDevice, stream.cuda_stream()));
-    } else {
-      size_t num_items = ctx.oenum;
+    double T_segmentsort = grape::GetCurrentTime();
+    {
       size_t num_segments = iv.size();
+      size_t num_items = ctx.d_lo_row_offset[num_segments];
       auto* p_d_col_indices =
           thrust::raw_pointer_cast(ctx.d_col_indices.data());
       auto* p_d_sorted_col_indices =
@@ -251,14 +386,16 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
           SegmentSort(p_d_col_indices, p_d_sorted_col_indices, d_offsets,
                       d_offsets + 1, num_items, num_segments);
     }
+    T_segmentsort = grape::GetCurrentTime() - T_segmentsort;
 
-    WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
     uint32_t n_vertices = iv.size();
 
     auto d_new_label = ctx.new_label.DeviceObject();
 
+    double T_counting = grape::GetCurrentTime();
     ForEachWithIndex(
-        stream, ws_in, [=] __device__(size_t idx, vertex_t v) mutable {
+        stream, ws_iv, [=] __device__(size_t idx, vertex_t v) mutable {
+          idx = v.GetValue();
           size_t begin = d_offsets[idx], end = d_offsets[idx + 1];
           size_t size = end - begin;
 
@@ -305,6 +442,23 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
             }
           }
         });
+    stream.Sync();
+    T_counting = grape::GetCurrentTime() - T_counting;
+
+    // std::cout << "Frag " << frag.fid() << " update time: " << T_update * 1000
+    //          << " segmentsort time: " << T_segmentsort * 1000
+    //          << " counting time: " << T_counting * 1000 << std::endl;
+  }
+
+  void Update(const fragment_t& frag, context_t& ctx,
+              message_manager_t& messages) {
+    auto d_frag = frag.DeviceObject();
+    auto& stream = messages.stream();
+    auto iv = frag.InnerVertices();
+    auto d_labels = ctx.labels.DeviceObject();
+    auto d_new_label = ctx.new_label.DeviceObject();
+
+    WorkSourceRange<vertex_t> ws_iv(*iv.begin(), iv.size());
 
     ForEach(stream, ws_iv, [=] __device__(vertex_t v) mutable {
       if (d_new_label[v].second) {
@@ -320,10 +474,15 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     auto iv = frag.InnerVertices();
     auto ov = frag.OuterVertices();
     auto d_labels = ctx.labels.DeviceObject();
+    auto d_lo_q = ctx.lo_q.DeviceObject();
+    auto d_hi_q = ctx.hi_q.DeviceObject();
     WorkSourceRange<vertex_t> ws_iv(*iv.begin(), iv.size());
     WorkSourceRange<vertex_t> ws_ov(*ov.begin(), ov.size());
-    thrust::device_vector<size_t> out_degree(iv.size());
-    auto* d_out_degree = thrust::raw_pointer_cast(out_degree.data());
+
+    thrust::device_vector<size_t> lo_out_degree(iv.size());
+    thrust::device_vector<size_t> hi_out_degree(iv.size());
+    auto* d_lo_out_degree = thrust::raw_pointer_cast(lo_out_degree.data());
+    auto* d_hi_out_degree = thrust::raw_pointer_cast(hi_out_degree.data());
 
     ++ctx.step;
     if (ctx.step > ctx.max_round) {
@@ -335,37 +494,51 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
     bool isDirected = (frag.load_strategy == grape::LoadStrategy::kBothOutIn);
     ForEachWithIndex(stream, ws_iv,
                      [=] __device__(size_t idx, vertex_t v) mutable {
-                       d_out_degree[idx] = d_frag.GetLocalOutDegree(v);
+                       size_t degree = 0;
+                       degree = d_frag.GetLocalOutDegree(v);
                        if (isDirected) {
-                         d_out_degree[idx] += d_frag.GetLocalInDegree(v);
+                         degree += d_frag.GetLocalInDegree(v);
+                       }
+                       if (degree >= 256) {
+                         d_hi_q.Append(v);
+                         d_hi_out_degree[idx] = degree;
+                         d_lo_out_degree[idx] = 0;
+                       } else {
+                         d_lo_q.Append(v);
+                         d_lo_out_degree[idx] = degree;
+                         d_hi_out_degree[idx] = 0;
                        }
                      });
 
-    void* d_temp_storage = nullptr;
-    size_t temp_storage_bytes = 0;
-    auto* p_d_row_offset = thrust::raw_pointer_cast(ctx.d_row_offset.data());
+    auto* pd_lo_row_offset =
+        thrust::raw_pointer_cast(ctx.d_lo_row_offset.data());
+    auto* pd_hi_row_offset =
+        thrust::raw_pointer_cast(ctx.d_hi_row_offset.data());
     auto size = iv.size();
 
-    // ReportMemoryUsage("Before inclusive sum.");
-    CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
-                                             d_out_degree, p_d_row_offset + 1,
-                                             size, stream.cuda_stream()));
-    CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-    CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
-                                             d_out_degree, p_d_row_offset + 1,
-                                             size, stream.cuda_stream()));
-    CHECK_CUDA(cudaFree(d_temp_storage));
-
-    if (0) {
-      CHECK_CUDA(
-          cudaMemcpyAsync(thrust::raw_pointer_cast(ctx.h_row_offset.data()),
-                          thrust::raw_pointer_cast(ctx.d_row_offset.data()),
-                          sizeof(size_t) * ctx.h_row_offset.size(),
-                          cudaMemcpyDeviceToHost, stream.cuda_stream()));
-    }
+    PrefixSum(d_lo_out_degree, pd_lo_row_offset + 1, size,
+              stream.cuda_stream());
+    PrefixSum(d_hi_out_degree, pd_hi_row_offset + 1, size,
+              stream.cuda_stream());
+    stream.Sync();
     // ReportMemoryUsage("After inclusive sum.");
 
-    PropagateLabel(frag, ctx, messages);
+    size_t lo_size = ctx.d_lo_row_offset[size];
+    size_t hi_size = ctx.d_hi_row_offset[size];
+
+    // std::cout << "lo_size: " << lo_size << ", hi_size: " << hi_size
+    //          << std::endl;
+
+    ctx.d_col_indices.resize(lo_size, 0);
+    ctx.d_sorted_col_indices.resize(lo_size, 0);
+    PropagateLabel_lo(frag, ctx, messages);
+
+    ctx.d_hi_label_hash.resize(hi_size, 0);
+    ctx.d_hi_col_indices.resize(hi_size, 0);
+    ctx.d_hi_label_cnt.resize(hi_size, 0);
+    PropagateLabel_hi(frag, ctx, messages);
+
+    Update(frag, ctx, messages);
   }
 
   void IncEval(const fragment_t& frag, context_t& ctx,
@@ -389,9 +562,12 @@ class CDLP : public GPUAppBase<FRAG_T, CDLPContext<FRAG_T>>,
       messages.ForceContinue();
     }
 
-    PropagateLabel(frag, ctx, messages);
+    PropagateLabel_lo(frag, ctx, messages);
+    PropagateLabel_hi(frag, ctx, messages);
+
+    Update(frag, ctx, messages);
   }
-};
+};  // namespace cuda
 }  // namespace cuda
 }  // namespace grape
 #endif  // __CUDACC__

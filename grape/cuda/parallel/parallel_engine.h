@@ -130,7 +130,7 @@ inline void ForEachWithIndexBlockShared(const Stream& stream,
       [=] __device__(FUNC_T f, Args... args) mutable {
         __shared__ uint32_t shm[8192];
         auto tid = TID_1D;
-        auto nthreads = TOTAL_THREADS_1D;
+        //auto nthreads = TOTAL_THREADS_1D;
         auto block_size = blockDim.x;
         auto block_id = blockIdx.x;
         auto lane = tid;
