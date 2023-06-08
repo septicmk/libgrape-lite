@@ -63,22 +63,32 @@ DEV_INLINE float atomicMinFloat(float* addr, float value) {
   return old;
 }
 
+DEV_INLINE int64_t atomicMin64(int64_t* address, int64_t val) {
+  signed long long int* address_as_ull = (signed long long int*) address;
+  signed long long int val_as_ull = (signed long long) val;
+  return (int64_t) atomicMin(address_as_ull, val_as_ull);
+}
+
+DEV_INLINE int64_t atomicMax64(int64_t* address, int64_t val) {
+  signed long long int* address_as_ull = (signed long long int*) address;
+  signed long long int val_as_ull = (signed long long) val;
+  return (int64_t) atomicMax(address_as_ull, val_as_ull);
+}
+
+DEV_INLINE int64_t atomicCAS64(int64_t* address, int64_t compare, int64_t val) {
+  unsigned long long int* address_as_ull = (unsigned long long int*) address;
+  unsigned long long int compare_as_ull = (unsigned long long int) compare;
+  unsigned long long int val_as_ull = (unsigned long long) val;
+  return (int64_t) atomicCAS(address_as_ull, compare_as_ull, val_as_ull);
+}
+
 DEV_INLINE size_t atomicAdd64(size_t* address, size_t val) {
   unsigned long long int* address_as_ull = (unsigned long long int*) address;
   unsigned long long int val_as_ull = (unsigned long long) val;
   return (size_t) atomicAdd(address_as_ull, val_as_ull);
-  // unsigned long long int old = *address_as_ull, assumed;
-
-  // do {
-  //  assumed = old;
-  //  old = atomicCAS(address_as_ull, assumed,
-  //                  static_cast<unsigned long long int>(val + assumed));
-  //} while (assumed != old);
-
-  // return old;
 }
 
-//__inline__ __device__ double atomicAddD(double* address, double val) {
+// DEV_INLINE double atomicAddD(double* address, double val) {
 //  unsigned long long int* address_as_ull = (unsigned long long int*) address;
 //  unsigned long long int old = *address_as_ull, assumed;
 //  if (val == 0.0)
@@ -92,17 +102,57 @@ DEV_INLINE size_t atomicAdd64(size_t* address, size_t val) {
 //  return __longlong_as_double(old);
 //}
 
-DEV_INLINE double atomicAddD(double* address, double val) {
-  unsigned long long int* address_as_ull = (unsigned long long int*) address;
-  unsigned long long int old = *address_as_ull, assumed;
-  if (val == 0.0)
-    return __longlong_as_double(old);
-  do {
-    assumed = old;
-    old = atomicCAS(address_as_ull, assumed,
-                    __double_as_longlong(val + __longlong_as_double(assumed)));
-  } while (assumed != old);
-  return __longlong_as_double(old);
+template <typename T>
+DEV_INLINE T reduce_max_sync(uint32_t mask, T val) {
+  uint32_t lane = threadIdx.x & 31;
+  for (int offset = 16; offset > 0; offset /= 2) {
+    T other_val = __shfl_down_sync(mask, val, offset);
+    if (offset + lane <= 32 && mask & (1 << (offset + lane)))
+      val = val > other_val ? val : other_val;
+  }
+  uint32_t leader = __ffs(mask) - 1;
+  if (mask != 0) {
+    val = __shfl_sync(mask, val, leader);
+  }
+  return val;
+}
+
+template <typename T>
+DEV_INLINE T reduce_min_sync(uint32_t mask, T val) {
+  uint32_t lane = threadIdx.x & 31;
+  for (int offset = 16; offset > 0; offset /= 2) {
+    T other_val = __shfl_down_sync(mask, val, offset);
+    if (offset + lane <= 32 && mask & (1 << (offset + lane)))
+      val = val < other_val ? val : other_val;
+  }
+  uint32_t leader = __ffs(mask) - 1;
+  if (mask != 0) {
+    val = __shfl_sync(mask, val, leader);
+  }
+  return val;
+}
+
+template <int NT, typename T>
+DEV_INLINE int BinarySearch(const T* arr, const T& key) {
+  int mid = ((NT >> 1) - 1);
+
+  if (NT > 512)
+    mid = arr[mid] > key ? mid - 256 : mid + 256;
+  if (NT > 256)
+    mid = arr[mid] > key ? mid - 128 : mid + 128;
+  if (NT > 128)
+    mid = arr[mid] > key ? mid - 64 : mid + 64;
+  if (NT > 64)
+    mid = arr[mid] > key ? mid - 32 : mid + 32;
+  if (NT > 32)
+    mid = arr[mid] > key ? mid - 16 : mid + 16;
+  mid = arr[mid] > key ? mid - 8 : mid + 8;
+  mid = arr[mid] > key ? mid - 4 : mid + 4;
+  mid = arr[mid] > key ? mid - 2 : mid + 2;
+  mid = arr[mid] > key ? mid - 1 : mid + 1;
+  mid = arr[mid] > key ? mid : mid + 1;
+
+  return mid;
 }
 
 template <typename T>
@@ -153,29 +203,6 @@ DEV_INLINE bool BinarySearchWarp(const ArrayView<T>& array, const T& target) {
   return __any_sync(__activemask(), found);
 }
 
-template <int NT, typename T>
-DEV_INLINE int BinarySearch(const T* arr, const T& key) {
-  int mid = ((NT >> 1) - 1);
-
-  if (NT > 512)
-    mid = arr[mid] > key ? mid - 256 : mid + 256;
-  if (NT > 256)
-    mid = arr[mid] > key ? mid - 128 : mid + 128;
-  if (NT > 128)
-    mid = arr[mid] > key ? mid - 64 : mid + 64;
-  if (NT > 64)
-    mid = arr[mid] > key ? mid - 32 : mid + 32;
-  if (NT > 32)
-    mid = arr[mid] > key ? mid - 16 : mid + 16;
-  mid = arr[mid] > key ? mid - 8 : mid + 8;
-  mid = arr[mid] > key ? mid - 4 : mid + 4;
-  mid = arr[mid] > key ? mid - 2 : mid + 2;
-  mid = arr[mid] > key ? mid - 1 : mid + 1;
-  mid = arr[mid] > key ? mid : mid + 1;
-
-  return mid;
-}
-
 #if __CUDACC_VER_MAJOR__ >= 9
 #define SHFL_DOWN(a, b) __shfl_down_sync(0xFFFFFFFF, a, b)
 #define SHFL(a, b) __shfl_sync(0xFFFFFFFF, a, b)
@@ -212,13 +239,20 @@ DEV_INLINE T block_reduce(T val) {
     val = warp_reduce(val);
   return val;
 }
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 template <typename T>
 DEV_INLINE T warpReduceMax(T val) {
   for (int offset = 32 >> 1; offset > 0; offset >>= 1) {
     T tmp = SHFL_DOWN(val, offset);
-    val = MAX(tmp, val);
+    val = tmp > val ? tmp : val;
   }
+  return val;
+}
+
+template <typename T>
+DEV_INLINE T warpAllReduceMax(T val) {
+  val = warpReduceMax(val);
+  val = SHFL(val, 0);
   return val;
 }
 
@@ -238,6 +272,7 @@ DEV_INLINE T blockReduceMax(T val) {
     val = warpReduceMax(val);
   return val;
 }
+
 template <typename T>
 DEV_INLINE T blockAllReduceMax(T val) {
   __shared__ T global;
@@ -344,29 +379,37 @@ DEV_INLINE size_t CountCommonNeighbor(T* u_start, size_t u_len, T* v_start,
 template <typename T>
 class MFLCounter {
  public:
-  __device__ __forceinline__ void init(T* shm_data, T* global_data,
-                                       T* global_cnt, int ht_size,
-                                       size_t cms_size, size_t cms_k) {
-    this->shm_ht = shm_data;
+  __device__ __forceinline__ void init(uint32_t* shm_data, T* global_data,
+                                       uint32_t* global_cnt, int ht_size,
+                                       int cms_size, int cms_k, int cid,
+                                       int csize, int width, T dft) {
+    uint32_t* my_shm_data =
+        shm_data + cid * ((1 + width) * ht_size + cms_size * cms_k);
+    this->shm_ht = (T*) (void*) my_shm_data;
     this->shm_ht_size = ht_size;
-    this->shm_cnt = shm_data + ht_size;
+    this->shm_cnt = my_shm_data + ht_size * width;
 
     this->cms_size = cms_size;
     this->cms_k = cms_k;
-    this->cms_cnt = shm_data + 2 * ht_size;
+    this->cms_cnt = my_shm_data + ht_size * (width + 1);
 
     this->global_ht = global_data;
     this->global_cnt = global_cnt;
+
+    this->cid = cid;
+    this->csize = csize;
+    this->dft = dft;
   }
 
   __device__ __forceinline__ int insert_shm_ht(T l) {
     size_t idx = l % shm_ht_size;
     T* slot = &shm_ht[idx];
     uint32_t* counter = &shm_cnt[idx];
-    T assumed1 = 0xffffffff;
+    T assumed1 = dft;
     T assumed2 = l;
+    assert(assumed1 != assumed2);
     // try update
-    T old = atomicCAS(slot, assumed1, l);
+    T old = atomicCAS64(slot, assumed1, l);
     if (old != assumed1 && old != assumed2) {
       return -1;
     }
@@ -387,11 +430,14 @@ class MFLCounter {
   }
 
   __device__ __forceinline__ int insert_shm_cms(T l) {
-    T pow = 1;
+    size_t pow = 1;
     uint32_t min_upperbound = 0x7fffffff;
+    // TODO(mengke): WARNING, It has bug when cms_k > 1 and threads try to
+    // insert element into different CMS buckets concurrently. To make it
+    // correct, we can use a atomicCAS to acquire a lock before insert
     for (int i = 0; i < cms_k; ++i) {
-      pow = pow * l;
-      T key = pow + i * l + i;  // overflow is benign
+      pow = pow * (l % cms_size) % cms_size;
+      size_t key = (pow + i * l + i) % cms_size;  // overflow is benign
       size_t idx = key % cms_size;
       uint32_t* counter = cms_cnt + i * cms_size + idx;
       uint32_t value = atomicAdd(counter, 1) + 1;
@@ -404,10 +450,10 @@ class MFLCounter {
                                                   size_t end) {
     size_t size = end - begin;
     size_t idx = l % size;
-    T assumed1 = 0xffffffff;
+    T assumed1 = dft;
     T assumed2 = l;
     for (;;) {
-      T old = atomicCAS(&global_ht[begin + idx], assumed1, l);
+      T old = atomicCAS64(&global_ht[begin + idx], assumed1, l);
       if (old != assumed1 && old != assumed2) {
         idx = (idx + 1) % size;
       } else {
@@ -420,14 +466,18 @@ class MFLCounter {
  private:
   T* shm_ht;
   uint32_t* shm_cnt;
-  size_t shm_ht_size;
+  int shm_ht_size;
 
-  size_t cms_k;
-  size_t cms_size;
+  int cms_k;
+  int cms_size;
   uint32_t* cms_cnt;
 
   T* global_ht;
   uint32_t* global_cnt;
+
+  int cid;
+  int csize;
+  T dft;
 };
 
 // |--------- bucket stride ----------|

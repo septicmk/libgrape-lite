@@ -215,6 +215,7 @@ static cudaError_t SortKeys64(
       stream,
       debug_synchronous);
 }
+
 template <typename            InputIteratorT,
           typename            OutputIteratorT>
 static cudaError_t PrefixSumKernel64(
@@ -289,7 +290,8 @@ T* SegmentSort(T* d_keys_in,
 
 template <typename I, typename O>
 // clang-format off
-void PrefixSum64(
+// Force the accumulate type as size_t, and it will always be ExclusiveSum
+void ExclusiveSum64(
     I* d_keys_in,
     O* d_keys_out,
     size_t size,
@@ -311,7 +313,8 @@ void PrefixSum64(
 
 template <typename I, typename O>
 // clang-format off
-void PrefixSum(
+// The accumulate type is I;
+void InclusiveSum(
     I* d_keys_in,
     O* d_keys_out,
     size_t size,

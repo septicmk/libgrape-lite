@@ -63,10 +63,7 @@ class LCCPContext : public grape::VoidContext<FRAG_T> {
       (*row_offset)[idx + 1] = (*row_offset)[idx] + nbrs.size();
     }
     size_t edge_size = (*row_offset)[size];
-    // std::cout << "edge size CPU: " << edge_size << std::endl;
-    // cuda::ReportHostMemoryUsage("before cpu csr malloc");
     *sorted_col = (vid_t*) malloc(edge_size * sizeof(vid_t));
-    // cuda::ReportHostMemoryUsage("after cpu csr malloc");
     for (auto v : vertices) {
       auto& nbrs = complete_neighbor[v];
       size_t base = (*row_offset)[v.GetValue()];
@@ -74,7 +71,6 @@ class LCCPContext : public grape::VoidContext<FRAG_T> {
         (*sorted_col)[base + i] = nbrs[i].GetValue();
       }
     }
-    // cuda::ReportHostMemoryUsage("after cpu csr filling");
   }
 
   typename FRAG_T::template vertex_array_t<uint32_t> global_degree;
@@ -130,9 +126,7 @@ class LCCP : public ParallelAppBase<FRAG_T, LCCPContext<FRAG_T>>,
     if (ctx.stage >= 0 && ctx.stage <= LCC_M) {
       int K = ctx.stage;
 
-      // std::cout << "Transfer adj list in " << K << "iteration" << std::endl;
       if (K > 0) {
-        // cuda::ReportHostMemoryUsage("before receieve ");
         messages.ParallelProcess<fragment_t, std::vector<vid_t>>(
             thread_num(), frag,
             [&frag, &ctx](int tid, vertex_t u, const std::vector<vid_t>& msg) {
@@ -144,11 +138,9 @@ class LCCP : public ParallelAppBase<FRAG_T, LCCPContext<FRAG_T>>,
                 }
               }
             });
-        // cuda::ReportHostMemoryUsage("After recieve outer");
       }
 
       if (K < LCC_M) {
-        // cuda::ReportHostMemoryUsage("before cpu exchange");
         ForEach(inner_vertices, [this, &frag, &ctx, &messages, K](int tid,
                                                                   vertex_t v) {
           vid_t u_gid, v_gid;
@@ -180,7 +172,6 @@ class LCCP : public ParallelAppBase<FRAG_T, LCCPContext<FRAG_T>>,
           messages.SendMsgThroughOEdges<fragment_t, std::vector<vid_t>>(
               frag, v, msg_vec, tid);
         });
-        // cuda::ReportHostMemoryUsage("After cpu exchange");
       }
       messages.ForceContinue();
     }
@@ -192,7 +183,6 @@ class LCCP : public ParallelAppBase<FRAG_T, LCCPContext<FRAG_T>>,
         std::sort(nbr_vec.begin(), nbr_vec.end());
       });
 
-      // cuda::ReportHostMemoryUsage("After sort");
     }
     ctx.stage = ctx.stage + 1;
   }

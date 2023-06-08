@@ -163,7 +163,7 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
           d_global_degree[v] = degree;
         });
 
-    PrefixSum(d_global_degree.data(), d_row_offset + 1, vertices.size(),
+    InclusiveSum(d_global_degree.data(), d_row_offset + 1, vertices.size(),
               stream.cuda_stream());
 
     CHECK_CUDA(cudaMemcpyAsync(d_filling_offset.data(), d_row_offset,
@@ -172,11 +172,9 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
 
     stream.Sync();
     auto n_filtered_edges = ctx.row_offset[vertices.size()];
-    ReportMemoryUsage("Before temporary col_indices edges");
     ctx.col_indices.resize(n_filtered_edges);
     ctx.col_sorted_indices.resize(n_filtered_edges);
     ctx.col_dup_indices.resize(n_filtered_edges);
-    ReportMemoryUsage("After temporary col_indicdes edges");
 
     auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
     WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
@@ -255,9 +253,7 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
     msg_t* buffer_col;
 
     // Make space;
-    ReportMemoryUsage("Before Offload graph topology.");
     frag.OffloadTopology();
-    ReportMemoryUsage("After Offload graph topology.");
     {  // cacluate valid edges
       auto d_global_degree = ctx.global_degree.DeviceObject();
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
@@ -319,22 +315,19 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
     // std::cout << "n_valid_edges: " << valid_esize << std::endl;
     // std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
 
-    ReportMemoryUsage("Resize");
     {  // compact col index
       auto d_global_degree = ctx.global_degree.DeviceObject();
       auto* d_compact_row_offset =
           thrust::raw_pointer_cast(ctx.compact_row_offset.data());
 
-      PrefixSum(d_global_degree.data(), d_compact_row_offset + 1,
+      InclusiveSum(d_global_degree.data(), d_compact_row_offset + 1,
                 vertices.size(), stream.cuda_stream());
       stream.Sync();
       valid_esize = ctx.compact_row_offset[vertices.size()];
       // std::cout << "valid_esize : " << valid_esize << std::endl;
 
-      ReportMemoryUsage("Before resize col_sorted_indices topology.");
       // ctx.col_sorted_indices.resize(valid_esize);
       ctx.col_double_indices.resize(valid_esize);
-      ReportMemoryUsage("After resize col_sorted_indices topology.");
 
       auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
@@ -361,7 +354,6 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
                        });
       stream.Sync();
       sorted_col = buffer_col;
-      ReportMemoryUsage("before clear col_indices topology.");
     }
     return valid_esize;
   }
@@ -384,7 +376,6 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
       auto* d_double = thrust::raw_pointer_cast(ctx.col_double_indices.data());
       auto* d_filling_offset = d_row_offset + 1;
       auto* d_col_indices = sorted_col;
-      ReportMemoryUsage("before triangle counting");
       ForEachWithIndexWarp(
           stream, ws_in,
           [=] __device__(size_t lane, size_t idx, vertex_t u) mutable {
@@ -420,7 +411,6 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
     }
 
     if (ctx.stage >= 0 && ctx.stage <= LCCD_M) {
-      ReportMemoryUsage("TransferAdjList");
       TransferAdjList(frag, ctx, messages);
     }
 

@@ -191,24 +191,24 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         },
         ctx.lb);
 
-    //void* d_temp_storage = nullptr;
-    //size_t* ans = nullptr;
-    //CHECK_CUDA(cudaMalloc(&ans, sizeof(size_t)));
-    //size_t temp_storage_bytes = 0;
-    //size_t valid_esize;
-    //CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
+    // void* d_temp_storage = nullptr;
+    // size_t* ans = nullptr;
+    // CHECK_CUDA(cudaMalloc(&ans, sizeof(size_t)));
+    // size_t temp_storage_bytes = 0;
+    // size_t valid_esize;
+    // CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
     //                                  d_global_degree.data(), ans,
     //                                  vertices.size(), stream.cuda_stream()));
-    //CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-    //CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
+    // CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+    // CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
     //                                  d_global_degree.data(), ans,
     //                                  vertices.size(), stream.cuda_stream()));
-    //CHECK_CUDA(cudaFree(d_temp_storage));
-    //CHECK_CUDA(cudaMemcpyAsync(&valid_esize, ans, sizeof(size_t),
+    // CHECK_CUDA(cudaFree(d_temp_storage));
+    // CHECK_CUDA(cudaMemcpyAsync(&valid_esize, ans, sizeof(size_t),
     //                           cudaMemcpyDeviceToHost, stream.cuda_stream()));
-    //stream.Sync();
-    //CHECK_CUDA(cudaFree(ans));
-    //std::cout << "Original esize: " << valid_esize << std::endl;
+    // stream.Sync();
+    // CHECK_CUDA(cudaFree(ans));
+    // std::cout << "Original esize: " << valid_esize << std::endl;
 
     // clang-format off
     ForEach(stream, ws_in, [=] __device__(vertex_t v) mutable {
@@ -236,8 +236,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           d_valid_out_degree[v.GetValue()] = degree;
         });
 
-    PrefixSum64<msg_t, size_t>(d_valid_out_degree, d_row_offset,
-                             vertices.size() + 1, stream.cuda_stream());
+    ExclusiveSum64<msg_t, size_t>(d_valid_out_degree, d_row_offset,
+                                  vertices.size() + 1, stream.cuda_stream());
 
     CHECK_CUDA(cudaMemcpyAsync(d_filling_offset.data(), d_row_offset,
                                sizeof(size_t) * vertices.size(),
@@ -388,8 +388,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       auto* d_compact_row_offset =
           thrust::raw_pointer_cast(ctx.compact_row_offset.data());
 
-      PrefixSum64(d_valid_out_degree, d_compact_row_offset, vertices.size() + 1,
-                stream.cuda_stream());
+      ExclusiveSum64(d_valid_out_degree, d_compact_row_offset,
+                     vertices.size() + 1, stream.cuda_stream());
       stream.Sync();
       valid_esize = ctx.compact_row_offset[vertices.size()];
       std::cout << "valid_esize : " << valid_esize << std::endl;
