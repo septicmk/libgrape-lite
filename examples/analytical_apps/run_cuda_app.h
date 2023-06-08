@@ -36,6 +36,7 @@ limitations under the License.
 #include "cuda/cdlp/cdlp.h"
 #include "cuda/lcc/lcc.h"
 #include "cuda/lcc/lcc_directed.h"
+#include "cuda/lcc/lcc_opt.h"
 #include "cuda/lcc/lcc_preprocess.h"
 #include "cuda/pagerank/pagerank.h"
 #include "cuda/sssp/sssp.h"
@@ -334,7 +335,7 @@ void Run() {
       VID_T** col = (VID_T**) malloc(sizeof(VID_T*));
       size_t** row_offset = (size_t**) malloc(sizeof(size_t*));
       CreateAndQueryWithPreprocess<OID_T, VID_T, VDATA_T, EDATA_T,
-                                   grape::LoadStrategy::kOnlyOut, LCC, LCCP>(
+                                   grape::LoadStrategy::kOnlyOut, LCCOPT, LCCP>(
           comm_spec, efile, vfile, out_prefix, app_config, col, row_offset);
     }
   } else if (application == "cdlp") {
