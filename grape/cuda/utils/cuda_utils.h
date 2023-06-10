@@ -230,6 +230,7 @@ static cudaError_t PrefixSumKernel64(
     // Signed integer type for global offsets
     typedef int OffsetT;
 
+    // use size_t for aggregated value.
     return cub::DispatchScan<InputIteratorT, OutputIteratorT, cub::Sum, size_t, OffsetT>::Dispatch(
         d_temp_storage,
         temp_storage_bytes,

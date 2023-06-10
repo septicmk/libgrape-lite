@@ -130,7 +130,7 @@ inline void ForEachWithIndexBlockShared(const Stream& stream,
       [=] __device__(FUNC_T f, Args... args) mutable {
         __shared__ uint32_t shm[8192];
         auto tid = TID_1D;
-        //auto nthreads = TOTAL_THREADS_1D;
+        // auto nthreads = TOTAL_THREADS_1D;
         auto block_size = blockDim.x;
         auto block_id = blockIdx.x;
         auto lane = tid;
@@ -252,7 +252,7 @@ inline void ForEachWithIndexBlockDynamic(const Stream& stream,
         __shared__ size_t shared_idx;
         auto block_id = blockIdx.x;
         auto lane = threadIdx.x;
-        //auto n_block = gridDim.x;
+        // auto n_block = gridDim.x;
 
         for (size_t i = 0 + block_id; i < work_source.size();) {
           auto work = work_source.GetWork(i);
@@ -1425,11 +1425,12 @@ class ParallelEngine {
     CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
                                              d_degree, d_prefix_sum, size,
                                              stream.cuda_stream()));
-    CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+    CHECK_CUDA(cudaMallocAsync(&d_temp_storage, temp_storage_bytes,
+                               stream.cuda_stream()));
     CHECK_CUDA(cub::DeviceScan::InclusiveSum(d_temp_storage, temp_storage_bytes,
                                              d_degree, d_prefix_sum, size,
                                              stream.cuda_stream()));
-    CHECK_CUDA(cudaFree(d_temp_storage));
+    CHECK_CUDA(cudaFreeAsync(d_temp_storage, stream.cuda_stream()));
   }
 
  private:

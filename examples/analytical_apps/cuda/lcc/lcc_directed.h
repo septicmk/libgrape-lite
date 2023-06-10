@@ -95,7 +95,7 @@ class LCCDContext : public grape::VoidContext<FRAG_T> {
   }
 
   LoadBalancing lb{};
-  VertexArray<msg_t, vid_t> global_degree;
+  VertexArray<size_t, vid_t> global_degree;
   VertexArray<size_t, vid_t> filling_offset;
   VertexArray<size_t, vid_t> tricnt;
   thrust::device_vector<size_t> row_offset;
@@ -164,7 +164,7 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
         });
 
     InclusiveSum(d_global_degree.data(), d_row_offset + 1, vertices.size(),
-              stream.cuda_stream());
+                 stream.cuda_stream());
 
     CHECK_CUDA(cudaMemcpyAsync(d_filling_offset.data(), d_row_offset,
                                sizeof(size_t) * vertices.size(),
@@ -288,7 +288,7 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
       } else if (sorted_col == d_keys_out) {
         buffer_col = d_keys_in;
       } else {
-        std::cout << "how could it be??" << std::endl;
+        assert(false);
       }
     }
 
@@ -312,8 +312,6 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
                          }
                        });
     }
-    // std::cout << "n_valid_edges: " << valid_esize << std::endl;
-    // std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
 
     {  // compact col index
       auto d_global_degree = ctx.global_degree.DeviceObject();
@@ -321,7 +319,7 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
           thrust::raw_pointer_cast(ctx.compact_row_offset.data());
 
       InclusiveSum(d_global_degree.data(), d_compact_row_offset + 1,
-                vertices.size(), stream.cuda_stream());
+                   vertices.size(), stream.cuda_stream());
       stream.Sync();
       valid_esize = ctx.compact_row_offset[vertices.size()];
       // std::cout << "valid_esize : " << valid_esize << std::endl;

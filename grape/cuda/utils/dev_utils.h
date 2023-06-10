@@ -697,13 +697,18 @@ DEV_INLINE size_t intersect_num_bs_cache_directed(T* a, size_t size_a, T* b,
   int thread_lane =
       threadIdx.x & (WARP_SIZE - 1);        // thread index within the warp
   int warp_lane = threadIdx.x / WARP_SIZE;  // warp index within the CTA
+  int nwarp = BLK_SIZE / WARP_SIZE;
   __shared__ T cache[WARP_SHM_SIZE];
+  int shm_size = WARP_SHM_SIZE;
+  int shm_per_warp = shm_size / nwarp;
+  int shm_per_thd = shm_size / BLK_SIZE;
+  T* my_cache = cache + warp_lane * shm_per_warp;
+  size_t num = 0;
   T* lookup = a;
   T* search = b;
   size_t lookup_size = size_a;
   size_t search_size = size_b;
   bool is_reverse = false;
-  size_t num = 0;
   if (size_a > size_b) {
     is_reverse = true;
     lookup = b;
@@ -711,15 +716,17 @@ DEV_INLINE size_t intersect_num_bs_cache_directed(T* a, size_t size_a, T* b,
     lookup_size = size_b;
     search_size = size_a;
   }
-  cache[warp_lane * WARP_SIZE + thread_lane] =
-      search[thread_lane * search_size / WARP_SIZE];
+  for (int i = 0; i < shm_per_thd; ++i) {
+    my_cache[i * WARP_SIZE + thread_lane] =
+        search[(thread_lane + i * WARP_SIZE) * search_size / shm_per_warp];
+  }
   __syncwarp();
 
   for (auto i = thread_lane; i < lookup_size; i += WARP_SIZE) {
     auto key = lookup[i];  // each thread picks a vertex as the key
-    int64_t search_loc =
-        binary_search_2phase(search, cache, key, search_size, WARP_SIZE);
-    int64_t lookup_loc = i;
+    auto search_loc =
+        binary_search_2phase(search, my_cache, key, search_size, shm_per_warp);
+    auto lookup_loc = i;
     if (search_loc >= 0) {
       if (is_reverse) {
         num += wb[lookup_loc];

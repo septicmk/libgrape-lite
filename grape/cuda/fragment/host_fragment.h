@@ -134,18 +134,75 @@ class HostFragment
       __initMessageDestination(stream, conf.message_strategy);
     }
 
+    if (conf.need_split_edges || conf.need_split_edges_by_fragment) {
+      auto& comm_spec = vm_ptr_->GetCommSpec();
+      auto& ie = ie_.get_edges();
+      auto& ieoffset = ie_.get_offsets();
+      auto& oe = oe_.get_edges();
+      auto& oeoffset = oe_.get_offsets();
+      auto offset_size = ivnum_ + ovnum_ + 1;
+      auto compute_prefix_sum =
+          [offset_size](
+              const grape::Array<nbr_t*, grape::Allocator<nbr_t*>>& offset) {
+            pinned_vector<VID_T> prefix_sum(offset_size);
+
+            for (vid_t idx = 0; idx < offset_size; idx++) {
+              prefix_sum[idx] = offset[idx] - offset[0];
+            }
+            return prefix_sum;
+          };
+      // Engage incoming edges for outer vertices.
+      if (load_strategy == grape::LoadStrategy::kOnlyOut) {
+        d_ieoffset_.resize(offset_size);
+        d_ie_.resize(ie_.edge_num());
+        CHECK_CUDA(cudaMemcpyAsync(thrust::raw_pointer_cast(d_ie_.data()),
+                                   ie.data(), sizeof(nbr_t) * ie_.edge_num(),
+                                   cudaMemcpyHostToDevice,
+                                   stream.cuda_stream()));
+
+        auto prefix_sum = compute_prefix_sum(ieoffset);
+        ArrayView<VID_T> d_prefix_sum(prefix_sum.data(), prefix_sum.size());
+
+        CalculateOffsetWithPrefixSum<nbr_t, vid_t>(
+            stream, d_prefix_sum, thrust::raw_pointer_cast(d_ie_.data()),
+            thrust::raw_pointer_cast(d_ieoffset_.data()));
+      }
+      if (load_strategy == grape::LoadStrategy::kOnlyIn) {
+        d_oeoffset_.resize(offset_size);
+        d_oe_.resize(oe_.edge_num());
+        CHECK_CUDA(cudaMemcpyAsync(thrust::raw_pointer_cast(d_oe_.data()),
+                                   oe.data(), sizeof(nbr_t) * oe_.edge_num(),
+                                   cudaMemcpyHostToDevice,
+                                   stream.cuda_stream()));
+
+        auto prefix_sum = compute_prefix_sum(oeoffset);
+        ArrayView<VID_T> d_prefix_sum(prefix_sum.data(), prefix_sum.size());
+
+        CalculateOffsetWithPrefixSum<nbr_t, vid_t>(
+            stream, d_prefix_sum, thrust::raw_pointer_cast(d_oe_.data()),
+            thrust::raw_pointer_cast(d_oeoffset_.data()));
+      }
+    }
+
+    if (conf.need_split_edges) {
+      __init_edges_splitter__(stream, ie_.get_offsets(), iespliters_,
+                              d_ieoffset_, d_iespliters_holder_, d_iespliters_);
+      __init_edges_splitter__(stream, oe_.get_offsets(), oespliters_,
+                              d_oeoffset_, d_oespliters_holder_, d_oespliters_);
+    }
+
     if (conf.need_split_edges_by_fragment) {
       if (load_strategy == grape::LoadStrategy::kOnlyIn ||
           load_strategy == grape::LoadStrategy::kBothOutIn) {
-        __init_edges_splitter__(stream, ie_.get_offsets(), iespliters_,
-                                d_ieoffset_, d_iespliters_holder_,
-                                d_iespliters_);
+        __init_edges_splitter_by_fragment__(
+            stream, ie_.get_offsets(), iespliters_, d_ieoffset_,
+            d_iespliters_holder_, d_iespliters_);
       }
       if (load_strategy == grape::LoadStrategy::kOnlyOut ||
           load_strategy == grape::LoadStrategy::kBothOutIn) {
-        __init_edges_splitter__(stream, oe_.get_offsets(), oespliters_,
-                                d_oeoffset_, d_oespliters_holder_,
-                                d_oespliters_);
+        __init_edges_splitter_by_fragment__(
+            stream, oe_.get_offsets(), oespliters_, d_oeoffset_,
+            d_oespliters_holder_, d_oespliters_);
       }
     }
 
@@ -479,6 +536,38 @@ class HostFragment
   //   - protected access within their respective parent classes.
   // http://docs.nvidia.com/cuda/cuda-c-programming-guide/#device-lambda-restrictions
   void __init_edges_splitter__(
+      const Stream& stream,
+      grape::Array<nbr_t*, grape::Allocator<nbr_t*>> const& eoffset,
+      std::vector<grape::VertexArray<inner_vertices_t, nbr_t*>> const&
+          espliters,
+      thrust::device_vector<nbr_t*>& d_eoffset,
+      std::vector<thrust::device_vector<nbr_t*>>& d_espliters_holder,
+      thrust::device_vector<ArrayView<nbr_t*>>& d_espliters) {
+    if (!espliters.empty()) {
+      d_espliters_holder.resize(1);
+      d_espliters_holder[0].resize(ivnum_);
+      d_espliters.push_back(ArrayView<nbr_t*>(d_espliters_holder[0]));
+      pinned_vector<size_t> h_degree(espliters[0].size());
+      int i = 0;
+      for (auto v : InnerVertices()) {
+        h_degree[i++] = espliters[0][v] - eoffset[0];
+      }
+      LaunchKernel(
+          stream,
+          [] __device__(size_t * h_degree, vid_t ivnum,
+                        ArrayView<nbr_t*> offset, ArrayView<nbr_t*> espliter) {
+            auto tid = TID_1D;
+            auto nthreads = TOTAL_THREADS_1D;
+            for (size_t i = 0 + tid; i < ivnum; i += nthreads) {
+              espliter[i] = offset[0] + h_degree[i];
+            }
+          },
+          thrust::raw_pointer_cast(h_degree.data()), ivnum_,
+          ArrayView<nbr_t*>(d_eoffset), ArrayView<nbr_t*>(d_espliters[0]));
+    }
+  }
+
+  void __init_edges_splitter_by_fragment__(
       const Stream& stream,
       grape::Array<nbr_t*, grape::Allocator<nbr_t*>> const& eoffset,
       std::vector<grape::VertexArray<inner_vertices_t, nbr_t*>> const&
