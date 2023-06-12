@@ -151,8 +151,8 @@ class BFS : public GPUAppBase<FRAG_T, BFSContext<FRAG_T>>,
     auto visited_num = visited.Count(stream);
     double active_ratio = (active + 0.0) / ivnum;
     double visited_ratio = (visited_num + 0.0) / ivnum;
-    double time = grape::GetCurrentTime();
-    if (active_ratio < 0) {
+    bool usePush = (2.5 * active_ratio < (1 - visited_ratio)) || (active == 0);
+    if (usePush) {
       // push-based search
       WorkSourceRange<vertex_t> ws_iv(*iv.begin(), iv.size());
       ForEach(stream, ws_iv, [=] __device__(vertex_t v) mutable {
@@ -237,10 +237,6 @@ class BFS : public GPUAppBase<FRAG_T, BFSContext<FRAG_T>>,
 
     auto has_work = next_active_map.Count(stream);
     stream.Sync();
-    if (frag.fid() == 0) {
-      std::cout << visited_ratio << ", "
-                << (grape::GetCurrentTime() - time) * 1000 << std::endl;
-    }
 
     if (has_work > 0) {
       messages.ForceContinue();
