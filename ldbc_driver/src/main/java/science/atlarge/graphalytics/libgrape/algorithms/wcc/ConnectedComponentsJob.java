@@ -29,7 +29,7 @@ public class ConnectedComponentsJob extends LibgrapeJob {
 
 	@Override
 	protected void addJobArguments(List<String> args) {
-		args.add("--application");
+		//args.add("--application");
 		args.add("wcc");
 	}
 }

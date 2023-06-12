@@ -33,11 +33,11 @@ public class PageRankJob extends LibgrapeJob {
 
 	@Override
 	protected void addJobArguments(List<String> args) {
-		args.add("--application");
+		//args.add("--application");
 		args.add("pagerank");
-		args.add("--pr_d");
+		//args.add("--pr_d");
 		args.add(Float.toString(params.getDampingFactor()));
-		args.add("--pr_mr");
+		//args.add("--pr_mr");
 		args.add(Integer.toString(params.getNumberOfIterations()));
 	}
 }

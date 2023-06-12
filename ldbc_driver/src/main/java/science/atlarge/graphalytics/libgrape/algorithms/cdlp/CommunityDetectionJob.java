@@ -33,9 +33,9 @@ public class CommunityDetectionJob extends LibgrapeJob {
 
 	@Override
 	protected void addJobArguments(List<String> args) {
-		args.add("--application");
+		//args.add("--application");
 		args.add("cdlp");
-		args.add("--cdlp_mr");
+		//args.add("--cdlp_mr");
 		args.add(Integer.toString(params.getMaxIterations()));
 	}
 }

@@ -107,7 +107,6 @@ class HostFragment
   void Init(fid_t fid, bool directed, std::vector<internal_vertex_t>& vertices,
             std::vector<edge_t>& edges) {
     base_t::Init(fid, directed, vertices, edges);
-    __allocate_device_fragment__();
   }
 
   template <typename IOADAPTOR_T>
@@ -118,7 +117,6 @@ class HostFragment
   template <typename IOADAPTOR_T>
   void Deserialize(const std::string& prefix, const fid_t fid) {
     base_t::template Deserialize<IOADAPTOR_T>(prefix, fid);
-    __allocate_device_fragment__();
   }
 
   void PrepareToRunApp(const CommSpec& comm_spec, PrepareConf conf) {
@@ -470,6 +468,8 @@ class HostFragment
     stream.Sync();
   }
 
+  void AllocateDeviceCSR() { __allocate_device_fragment__(); }
+
   void ReleaseDeviceCSR() {
     d_ie_.resize(0);
     d_ie_.shrink_to_fit();
@@ -494,6 +494,17 @@ class HostFragment
 
     d_oespliters_.resize(0);
     d_oespliters_.shrink_to_fit();
+
+    d_outer_vertices_of_frag_.resize(0);
+    d_outer_vertices_of_frag_.shrink_to_fit;
+
+    d_mirrors_of_frag_holder_.resize(0);
+    d_mirrors_of_frag_holder_.shrink_to_fit;
+    d_mirrors_of_frag_.resize(0);
+    d_mirrors_of_frag_.shrink_to_fit;
+
+    d_vdata_.resize(0);
+    d_vdata_.shrink_to_fit(0);
   }
 
   std::shared_ptr<coo_t> ConvertToCOO(bool release_csr = false) {

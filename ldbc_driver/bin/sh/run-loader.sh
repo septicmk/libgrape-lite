@@ -14,14 +14,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-LOG_PATH=$1
-APP_NAME=$2
-FINAL_OUT=$3
+
+for host in `echo $1 | tr ',' ' '`;
+do
+  ssh $host mkdir -p `dirname $5`
+  scp $5 $host:$5
+done
+
+LOG_PATH=$2
+LIBGRAPE_HOME=$3
+FINAL_OUT=$4
+echo ${@:5}
 # the binary is sync to ${HOME}/bin/standard/run_app
 # switch to $HOME before mpirun
 pushd ${HOME}
-/bin/standard/client ${APP_NAME} ${FINAL_OUT} &
+mpirun -np 8 --host $1 ${@:5} > /tmp/grape.loader.log 2>&1 &
 popd
 
-echo $! > $LOG_PATH/executable.pid
-wait $!
+while true; do
+  if [[ $(tail -n 1 /tmp/grape.loader.log) == *"graph loaded."* ]]; then
+    break
+  fi
+  sleep 1
+done
+
+exit 0

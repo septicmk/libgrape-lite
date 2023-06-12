@@ -34,9 +34,9 @@ public class SingleSourceShortestPathsJob extends LibgrapeJob {
 
 	@Override
 	protected void addJobArguments(List<String> args) {
-		args.add("--application");
+		//args.add("--application");
 		args.add("sssp");
-		args.add("--sssp_source");
+		//args.add("--sssp_source");
 		args.add(Long.toString(params.getSourceVertex()));
 	}
 }

@@ -30,33 +30,33 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 abstract public class LibgrapeJob {
-	private static final Logger LOG = LogManager.getLogger(LibgrapeJob.class);
+  private static final Logger LOG = LogManager.getLogger(LibgrapeJob.class);
 
-	private String jobId;
-	private String verticesPath;
-	private String edgesPath;
-	private boolean graphDirected;
-	private File outputFile;
-	private Configuration config;
-	private String logPath;
+  private String jobId;
+  private String verticesPath;
+  private String edgesPath;
+  private boolean graphDirected;
+  private File outputFile;
+  private Configuration config;
+  private String logPath;
   private String graphName;
   private String applicationName;
 
-	public LibgrapeJob(Configuration config, String verticesPath, String edgesPath, boolean graphDirected, String jobId,
-			String logPath) {
-		this.config = config;
-		this.verticesPath = verticesPath;
-		this.edgesPath = edgesPath;
-		this.graphDirected = graphDirected;
-		this.jobId = jobId;
-		this.logPath = logPath;
-	}
+  public LibgrapeJob(Configuration config, String verticesPath, String edgesPath, boolean graphDirected, String jobId,
+      String logPath) {
+    this.config = config;
+    this.verticesPath = verticesPath;
+    this.edgesPath = edgesPath;
+    this.graphDirected = graphDirected;
+    this.jobId = jobId;
+    this.logPath = logPath;
+  }
 
-	abstract protected void addJobArguments(List<String> args);
+  abstract protected void addJobArguments(List<String> args);
 
-	public void setOutputFile(File file) {
-		outputFile = file;
-	}
+  public void setOutputFile(File file) {
+    outputFile = file;
+  }
 
   public void setGraphName(String graphName) {
     this.graphName = graphName;
@@ -66,34 +66,25 @@ abstract public class LibgrapeJob {
     this.applicationName = applicationName;
   }
 
-	public void run() throws IOException, InterruptedException {
-		List<String> args = new ArrayList<>();
-		args.add("--vfile");
-		args.add(verticesPath);
-		args.add("--efile");
-		args.add(edgesPath);
+  public void load() throws IOException, InterruptedException {
+    List<String> args = new ArrayList<>();
+    args.add("--vfile");
+    args.add(verticesPath);
+    args.add("--efile");
+    args.add(edgesPath);
 
-		args.add(graphDirected ? "--directed" : "--nodirected");
-		// args.add("--benchmarking");
-		addJobArguments(args);
+    args.add(graphDirected ? "--directed" : "--nodirected");
+    // args.add("--benchmarking");
 
-		if (outputFile != null) {
-			args.add("--out_prefix");
-			args.add(outputFile.getParentFile().getAbsolutePath());
-		}
+    String libgrapeHome = config.getString("platform.libgrape.home");
+    String outputFilePath = outputFile.getAbsolutePath();
 
-		String libgrapeHome = config.getString("platform.libgrape.home");
-		String outputFilePath = outputFile.getAbsolutePath();
+    int numThreads = config.getInt("platform.libgrape.num-threads", -1);
 
-		int numThreads = config.getInt("platform.libgrape.num-threads", -1);
-
-		if (numThreads > 0) {
-			args.add("--ncpus");
-			args.add(String.valueOf(numThreads));
-		}
-
-		args.add("--jobid");
-		args.add(jobId);
+    if (numThreads > 0) {
+      args.add("--ncpus");
+      args.add(String.valueOf(numThreads));
+    }
 
     String serialization = config.getString("platform.libgrape.serialization");
     String serializationSSSP = config.getString("platform.libgrape.serializationSSSP");
@@ -109,39 +100,121 @@ abstract public class LibgrapeJob {
     }
 
     Set<String> hashGraph =  new HashSet<>(Arrays.asList(
-      config.getStringArray("platform.libgrape.HashPartitioner")
-    ));
+          config.getStringArray("platform.libgrape.HashPartitioner")
+          ));
     if(hashGraph.contains(graphName)) {
       args.add("-segmented_partition=false");
     }
 
-		String argsString = "";
+    String argsString = "";
 
-		for (String arg : args) {
-			argsString += arg += " ";
-		}
+    for (String arg : args) {
+      argsString += arg += " ";
+    }
 
-		String nodes = config.getString("platform.libgrape.nodes");
-		String cmd = String.format("./bin/sh/run-mpi.sh %s %s %s %s %s %s", nodes, logPath, libgrapeHome,
-				outputFilePath, LibgrapePlatform.LIBGRAPE_BINARY_NAME, argsString);
+    String nodes = config.getString("platform.libgrape.nodes");
+    String cmd = String.format("./bin/sh/run-loader.sh %s %s %s %s %s %s", nodes, logPath, libgrapeHome,
+        outputFilePath, LibgrapePlatform.LIBGRAPE_BINARY_NAME, argsString);
 
-		LOG.info("executing command: " + cmd);
+    LOG.info("executing command: " + cmd);
 
-		ProcessBuilder pb = new ProcessBuilder(cmd.split(" "));
-		pb.redirectErrorStream(true);
+    ProcessBuilder pb = new ProcessBuilder(cmd.split(" "));
+    pb.redirectErrorStream(true);
 
-		Process process = pb.start();
-		InputStreamReader isr = new InputStreamReader(process.getInputStream());
-		BufferedReader br = new BufferedReader(isr);
-		String line;
-		while ((line = br.readLine()) != null) {
-			System.out.println(line);
-		}
+    Process process = pb.start();
+    InputStreamReader isr = new InputStreamReader(process.getInputStream());
+    BufferedReader br = new BufferedReader(isr);
+    String line;
+    while ((line = br.readLine()) != null) {
+      System.out.println(line);
+    }
 
-		int exit = process.waitFor();
+    int exit = process.waitFor();
 
-		if (exit != 0) {
-			throw new IOException("unexpected error code");
-		}
-	}
+    if (exit != 0) {
+      throw new IOException("unexpected error code");
+    }
+  }
+
+  public void unload() throws IOException, InterruptedException {
+    List<String> args = new ArrayList<>();
+
+    if (outputFile != null) {
+      args.add(outputFile.getParentFile().getAbsolutePath());
+    }
+    args.add("exit");
+
+    String libgrapeHome = config.getString("platform.libgrape.home");
+    String outputFilePath = outputFile.getAbsolutePath();
+    
+
+    String argsString = "";
+
+    for (String arg : args) {
+      argsString += arg += " ";
+    }
+
+    String nodes = config.getString("platform.libgrape.nodes");
+    String cmd = String.format("./bin/sh/run-mpi.sh %s %s", outputFilePath, argsString);
+
+    LOG.info("executing command: " + cmd);
+
+    ProcessBuilder pb = new ProcessBuilder(cmd.split(" "));
+    pb.redirectErrorStream(true);
+
+    Process process = pb.start();
+    InputStreamReader isr = new InputStreamReader(process.getInputStream());
+    BufferedReader br = new BufferedReader(isr);
+    String line;
+    while ((line = br.readLine()) != null) {
+      System.out.println(line);
+    }
+
+    int exit = process.waitFor();
+
+    if (exit != 0) {
+      throw new IOException("unexpected error code");
+    }
+  }
+
+
+  public void run() throws IOException, InterruptedException {
+    List<String> args = new ArrayList<>();
+
+    if (outputFile != null) {
+      args.add(outputFile.getParentFile().getAbsolutePath());
+    }
+    addJobArguments(args);
+
+    String libgrapeHome = config.getString("platform.libgrape.home");
+    String outputFilePath = outputFile.getAbsolutePath();
+
+    String argsString = "";
+
+    for (String arg : args) {
+      argsString += arg += " ";
+    }
+
+    String nodes = config.getString("platform.libgrape.nodes");
+    String cmd = String.format("./bin/sh/run-mpi.sh %s %s", outputFilePath, argsString);
+
+    LOG.info("executing command: " + cmd);
+
+    ProcessBuilder pb = new ProcessBuilder(cmd.split(" "));
+    pb.redirectErrorStream(true);
+
+    Process process = pb.start();
+    InputStreamReader isr = new InputStreamReader(process.getInputStream());
+    BufferedReader br = new BufferedReader(isr);
+    String line;
+    while ((line = br.readLine()) != null) {
+      System.out.println(line);
+    }
+
+    int exit = process.waitFor();
+
+    if (exit != 0) {
+      throw new IOException("unexpected error code");
+    }
+  }
 }

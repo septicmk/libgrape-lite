@@ -34,9 +34,9 @@ public class BreadthFirstSearchJob extends LibgrapeJob {
 
 	@Override
 	protected void addJobArguments(List<String> args) {
-		args.add("--application");
+		//args.add("--application");
 		args.add("bfs");
-		args.add("--bfs_source");
+		//args.add("--bfs_source");
 		args.add(Long.toString(params.getSourceVertex()));
 	}
 }
