@@ -1,4 +1,4 @@
-/** Copyright 2020 Alibaba Group Holding Limited.
+/** Copyright 2023 Alibaba Group Holding Limited.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -182,7 +182,6 @@ class LCCP : public ParallelAppBase<FRAG_T, LCCPContext<FRAG_T>>,
         auto& nbr_vec = ctx.complete_neighbor[v];
         std::sort(nbr_vec.begin(), nbr_vec.end());
       });
-
     }
     ctx.stage = ctx.stage + 1;
   }

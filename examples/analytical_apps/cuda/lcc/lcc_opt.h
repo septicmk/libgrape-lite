@@ -1,4 +1,4 @@
-/** Copyright 2022 Alibaba Group Holding Limited.
+/** Copyright 2023 Alibaba Group Holding Limited.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,7 +31,8 @@ class LCCOPTContext : public grape::VoidContext<FRAG_T> {
   using vertex_t = typename FRAG_T::vertex_t;
   using msg_t = vid_t;
 
-  explicit LCCOPTContext(const FRAG_T& frag) : grape::VoidContext<FRAG_T>(frag) {}
+  explicit LCCOPTContext(const FRAG_T& frag)
+      : grape::VoidContext<FRAG_T>(frag) {}
 
 #ifdef PROFILING
   ~LCCOPTContext() {
@@ -46,6 +47,7 @@ class LCCOPTContext : public grape::VoidContext<FRAG_T> {
     auto& frag = this->fragment();
     auto vertices = frag.Vertices();
     auto iv = frag.InnerVertices();
+    auto ov = frag.OuterVertices();
 
     this->lb = app_config.lb;
     this->stage = 0;
@@ -63,7 +65,7 @@ class LCCOPTContext : public grape::VoidContext<FRAG_T> {
     using nbr_t = typename FRAG_T::nbr_t;
 
     messages.InitBuffer(
-        n_vertices * (sizeof(size_t)),
+        ov.size() * (sizeof(thrust::pair<vid_t, size_t>)),
         1 * (sizeof(thrust::pair<vid_t, msg_t>)));  // rely on syncLengths()
 
     size_t n_edges = (*offset)[n_vertices];
@@ -114,7 +116,7 @@ class LCCOPTContext : public grape::VoidContext<FRAG_T> {
 
 template <typename FRAG_T>
 class LCCOPT : public GPUAppBase<FRAG_T, LCCOPTContext<FRAG_T>>,
-            public ParallelEngine {
+               public ParallelEngine {
  public:
   INSTALL_GPU_WORKER(LCCOPT<FRAG_T>, LCCOPTContext<FRAG_T>, FRAG_T)
   using dev_fragment_t = typename fragment_t::device_t;

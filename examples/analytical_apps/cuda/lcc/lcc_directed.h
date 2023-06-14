@@ -1,4 +1,4 @@
-/** Copyright 2022 Alibaba Group Holding Limited.
+/** Copyright 2023 Alibaba Group Holding Limited.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -206,6 +206,7 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
     auto iv = frag.InnerVertices();
     auto d_mm = messages.DeviceObject();
     auto d_filling_offset = ctx.filling_offset.DeviceObject();
+    auto* d_row_offset_hi = d_filling_offset.data();
     auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
     auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
 
@@ -227,7 +228,7 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
             // TODO(mengke): replace it with ForEachOutgoingEdge
-            size_t length = (d_row_offset[idx + 1] - d_row_offset[idx]);
+            size_t length = (d_row_offset_hi[idx] - d_row_offset[idx]);
             size_t chunk_start =
                 d_row_offset[idx] + LCCD_CHUNK_START(K, length, LCCD_M);
             size_t chunk_end = chunk_start + LCCD_CHUNK_SIZE(K, length, LCCD_M);
@@ -322,9 +323,7 @@ class LCCD : public GPUAppBase<FRAG_T, LCCDContext<FRAG_T>>,
                    vertices.size(), stream.cuda_stream());
       stream.Sync();
       valid_esize = ctx.compact_row_offset[vertices.size()];
-      // std::cout << "valid_esize : " << valid_esize << std::endl;
 
-      // ctx.col_sorted_indices.resize(valid_esize);
       ctx.col_double_indices.resize(valid_esize);
 
       auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());

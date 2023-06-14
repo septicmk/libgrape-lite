@@ -1,4 +1,4 @@
-/** Copyright 2022 Alibaba Group Holding Limited.
+/** Copyright 2023 Alibaba Group Holding Limited.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -69,9 +69,6 @@ class LCCContext : public grape::VoidContext<FRAG_T> {
       n_edges += frag.GetLocalOutDegree(u);
       n_vertices += 1;
     }
-
-    std::cout << "vertices: " << vertices.size() << std::endl;
-    std::cout << "inner n_edges: " << n_edges << std::endl;
 
     messages.InitBuffer(
         std::max((n_edges / LCC_M + 1) * (sizeof(thrust::pair<vid_t, msg_t>)),
@@ -191,25 +188,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         },
         ctx.lb);
 
-    // void* d_temp_storage = nullptr;
-    // size_t* ans = nullptr;
-    // CHECK_CUDA(cudaMalloc(&ans, sizeof(size_t)));
-    // size_t temp_storage_bytes = 0;
-    // size_t valid_esize;
-    // CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
-    //                                  d_global_degree.data(), ans,
-    //                                  vertices.size(), stream.cuda_stream()));
-    // CHECK_CUDA(cudaMalloc(&d_temp_storage, temp_storage_bytes));
-    // CHECK_CUDA(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes,
-    //                                  d_global_degree.data(), ans,
-    //                                  vertices.size(), stream.cuda_stream()));
-    // CHECK_CUDA(cudaFree(d_temp_storage));
-    // CHECK_CUDA(cudaMemcpyAsync(&valid_esize, ans, sizeof(size_t),
-    //                           cudaMemcpyDeviceToHost, stream.cuda_stream()));
-    // stream.Sync();
-    // CHECK_CUDA(cudaFree(ans));
-    // std::cout << "Original esize: " << valid_esize << std::endl;
-
     // clang-format off
     ForEach(stream, ws_in, [=] __device__(vertex_t v) mutable {
       d_mm.template SendMsgThroughOEdges(dev_frag, v, d_valid_out_degree[v.GetValue()]);
@@ -246,9 +224,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
 
     auto n_filtered_edges = ctx.row_offset[vertices.size()];
 
-    ReportMemoryUsage("Before temporary col_indices edges");
     ctx.col_indices.resize(n_filtered_edges);
-    ReportMemoryUsage("After temporary col_indicdes edges");
 
     auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
     auto* d_msg_col_indices =
@@ -291,11 +267,7 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     auto n_filtered_edges = ctx.row_offset[vertices.size()];
     size_t vsize = vertices.size();
 
-    std::cout << "At Transfering iteration : " << K << " " << n_filtered_edges
-              << std::endl;
-
     if (K > 0) {
-      ReportMemoryUsage("Transfer AdjList: before recieve.");
       messages.template ParallelProcess<dev_fragment_t, msg_t>(
           dev_frag, [=] __device__(vertex_t u, msg_t v_gid) mutable {
             vertex_t v;
@@ -307,19 +279,13 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
               assert(pos + 1 <= d_row_offset[u.GetValue() + 1]);
               assert(u.GetValue() + 1 <= v_size);
               assert(d_row_offset[u.GetValue() + 1] <= d_row_offset[v_size]);
-              if (pos >= n_filtered_edges) {
-                printf("bad pos: %lu %lu %lu\n", pos,
-                       d_row_offset[u.GetValue() + 1], max_size);
-              }
               assert(pos < n_filtered_edges);
               d_col_indices[pos] = v.GetValue();
             }
           });
-      ReportMemoryUsage("Transfer AdjList: Finish recieve");
     }
 
     if (K < LCC_M) {
-      ReportMemoryUsage("Transfer AdjList: before sending.");
       WorkSourceRange<vertex_t> ws_in(*iv.begin(), iv.size());
       ForEachWithIndex(
           stream, ws_in, [=] __device__(uint32_t idx, vertex_t u) mutable {
@@ -338,7 +304,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
       stream.Sync();
       messages.ForceContinue();
-      ReportMemoryUsage("Transfer AdjList: Finish sending");
     }
   }
 
@@ -355,10 +320,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
 
     // Make space;
-    ReportMemoryUsage("Before Offload graph topology.");
     frag.OffloadTopology();
     messages.DropBuffer();
-    ReportMemoryUsage("After Offload graph topology.");
 
     auto size = vertices.size();
     size_t valid_esize = 0;
@@ -378,10 +341,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           });
     }
 
-    // std::cout << "n_valid_edges: " << valid_esize << std::endl;
-    // std::cout << "n_filtered_edges: " << n_filtered_edges << std::endl;
-
-    ReportMemoryUsage("Resize");
     {  // compact col index
       auto* d_valid_out_degree =
           thrust::raw_pointer_cast(ctx.valid_out_degree.data());
@@ -392,11 +351,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                      vertices.size() + 1, stream.cuda_stream());
       stream.Sync();
       valid_esize = ctx.compact_row_offset[vertices.size()];
-      std::cout << "valid_esize : " << valid_esize << std::endl;
 
-      ReportMemoryUsage("Before resize col_sorted_indices topology.");
       ctx.col_sorted_indices.resize(valid_esize);
-      ReportMemoryUsage("After resize col_sorted_indices topology.");
 
       auto* d_offsets = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_filling_offset = ctx.filling_offset.DeviceObject().data();
@@ -418,12 +374,9 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
                        });
       stream.Sync();
 
-      ReportMemoryUsage("before clear col_indices topology.");
       ctx.col_indices.clear();
       ctx.col_indices.shrink_to_fit();
-      ReportMemoryUsage("After clear col_indices topology.");
       ctx.col_indices.resize(valid_esize);
-      ReportMemoryUsage("After resize col_indices topology.");
     }
     return valid_esize;
   }
@@ -454,7 +407,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
       sorted_col = SegmentSort(d_keys_out, d_keys_in, d_offsets,
                                d_filling_offset, num_items, num_segments);
 
-      ReportMemoryUsage("before release double buffer");
       if (sorted_col == d_keys_out) {
         ctx.col_indices.clear();
         ctx.col_indices.shrink_to_fit();
@@ -462,10 +414,8 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
         ctx.col_sorted_indices.clear();
         ctx.col_sorted_indices.shrink_to_fit();
       }
-      ReportMemoryUsage("after release double buffer");
       messages.InitBuffer(frag.OuterVertices().size() * (sizeof(size_t)),
                           1 * (sizeof(size_t)));  // rely on syncLengths()
-      ReportMemoryUsage("after recover message buffer");
     }
 
     {
@@ -474,7 +424,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
           thrust::raw_pointer_cast(ctx.compact_row_offset.data());
       auto* d_filling_offset = d_row_offset + 1;
       auto* d_col_indices = sorted_col;
-      ReportMemoryUsage("before merge sort");
       ForEachWithIndexWarp(
           stream, ws_in,
           [=] __device__(size_t lane, size_t idx, vertex_t u) mutable {
@@ -540,7 +489,6 @@ class LCC : public GPUAppBase<FRAG_T, LCCContext<FRAG_T>>,
     }
 
     if (ctx.stage >= 1 && ctx.stage <= 1 + LCC_M) {
-      ReportMemoryUsage("TransferAdjList");
       TransferAdjList(frag, ctx, messages);
     }
 
