@@ -91,6 +91,31 @@ inline void ForEach(const Stream& stream, const WORK_SOURCE_T& work_source,
 }
 
 template <typename WORK_SOURCE_T, typename FUNC_T, typename... Args>
+inline void ForEachDynamic(const Stream& stream,
+                           const WORK_SOURCE_T& work_source, FUNC_T func,
+                           Args... args) {
+  if (work_source.size() == 0) {
+    return;
+  }
+  thrust::device_vector<unsigned long long int> ticket;
+  ticket.resize(1, 256 * 256);
+  auto* d_ticket = thrust::raw_pointer_cast(ticket.data());
+  LaunchKernelFix(
+      stream, work_source.size(),
+      [=] __device__(FUNC_T f, Args... args) mutable {
+        auto tid = TID_1D;
+
+        for (size_t i = 0 + tid; i < work_source.size();) {
+          auto work = work_source.GetWork(i);
+
+          f(work, args...);
+          i = atomicAdd(d_ticket, 1ll);
+        }
+      },
+      func, args...);
+}
+
+template <typename WORK_SOURCE_T, typename FUNC_T, typename... Args>
 inline void ForEachWithIndexWarpShared(const Stream& stream,
                                        const WORK_SOURCE_T& work_source,
                                        FUNC_T func, Args... args) {

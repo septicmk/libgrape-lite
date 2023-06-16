@@ -291,7 +291,8 @@ void Run() {
                      grape::LoadStrategy::kOnlyOut, BFS>(
           comm_spec, efile, vfile, out_prefix, app_config, FLAGS_bfs_source);
     }
-  } else if (application == "sssp") {
+  } 
+  /*else if (application == "sssp") {
 #ifdef INT_WEIGHT
     using WeightT = uint32_t;
 #else
@@ -351,6 +352,7 @@ void Run() {
   } else {
     LOG(FATAL) << "Invalid app name: " << application;
   }
+  */
 }
 }  // namespace cuda
 }  // namespace grape

@@ -45,6 +45,10 @@ class CSREdgecutFragmentBase
     return ie_.edge_num() + oe_.edge_num();
   }
 
+  inline size_t GetOutgoingEdgeNum() const { return oe_.edge_num(); }
+
+  inline size_t GetIncomingEdgeNum() const { return ie_.edge_num(); }
+
   inline bool HasChild(const vertex_t& v) const override {
     assert(IsInnerVertex(v));
     return !oe_.is_empty(v.GetValue());
@@ -215,8 +219,8 @@ class CSREdgecutFragmentBase
   }
 
   using base_t::GetFragId;
-  using base_t::GetInnerVerticesNum;
   using base_t::GetIncomingAdjList;
+  using base_t::GetInnerVerticesNum;
   using base_t::GetOutgoingAdjList;
 
  private:
