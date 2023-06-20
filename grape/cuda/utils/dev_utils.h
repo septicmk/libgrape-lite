@@ -31,7 +31,7 @@ namespace dev {
 
 #define WARP_SIZE 32
 #define BLK_SIZE 256
-#define WARP_SHM_SIZE 256
+#define WARP_SHM_SIZE 1024
 #define BLK_SHM_SIZE 8192
 
 DEV_HOST_INLINE size_t round_up(size_t numerator, size_t denominator) {

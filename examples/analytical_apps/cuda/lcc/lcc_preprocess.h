@@ -55,12 +55,16 @@ class LCCPContext : public grape::VoidContext<FRAG_T> {
     auto& frag = this->fragment();
     auto vertices = frag.Vertices();
     size_t size = vertices.size();
+
     *row_offset = (size_t*) malloc((size + 1) * sizeof(size_t));
     memset(*row_offset, 0, sizeof(size_t) * (size + 1));
     for (auto v : vertices) {
       auto& nbrs = complete_neighbor[v];
       int idx = v.GetValue();
-      (*row_offset)[idx + 1] = (*row_offset)[idx] + nbrs.size();
+      (*row_offset)[idx + 1] = nbrs.size();
+    }
+    for (int i = 0; i < size; ++i) {
+      (*row_offset)[i + 1] += (*row_offset)[i];
     }
     size_t edge_size = (*row_offset)[size];
     *sorted_col = (vid_t*) malloc(edge_size * sizeof(vid_t));

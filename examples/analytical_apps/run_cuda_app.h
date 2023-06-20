@@ -36,8 +36,10 @@ limitations under the License.
 #include "cuda/cdlp/cdlp.h"
 #include "cuda/lcc/lcc.h"
 #include "cuda/lcc/lcc_directed.h"
+#include "cuda/lcc/lcc_directed_opt.h"
 #include "cuda/lcc/lcc_opt.h"
 #include "cuda/lcc/lcc_preprocess.h"
+#include "cuda/lcc/lcc_preprocess_directed.h"
 #include "cuda/pagerank/pagerank.h"
 #include "cuda/sssp/sssp.h"
 #include "cuda/wcc/wcc.h"
@@ -291,8 +293,7 @@ void Run() {
                      grape::LoadStrategy::kOnlyOut, BFS>(
           comm_spec, efile, vfile, out_prefix, app_config, FLAGS_bfs_source);
     }
-  } 
-  /*else if (application == "sssp") {
+  } else if (application == "sssp") {
 #ifdef INT_WEIGHT
     using WeightT = uint32_t;
 #else
@@ -328,13 +329,17 @@ void Run() {
           FLAGS_pr_mr);
     }
   } else if (application == "lcc") {
+    VID_T** col = (VID_T**) malloc(sizeof(VID_T*));
+    size_t** row_offset = (size_t**) malloc(sizeof(size_t*));
     if (FLAGS_directed) {
-      CreateAndQuery<OID_T, VID_T, VDATA_T, EDATA_T,
-                     grape::LoadStrategy::kBothOutIn, LCCD>(
-          comm_spec, efile, vfile, out_prefix, app_config);
+      char** weight = (char**) malloc(sizeof(char*));
+      size_t** true_degree = (size_t**) malloc(sizeof(size_t*));
+      CreateAndQueryWithPreprocess<OID_T, VID_T, VDATA_T, EDATA_T,
+                                   grape::LoadStrategy::kBothOutIn, LCCDOPT,
+                                   LCCDP>(comm_spec, efile, vfile, out_prefix,
+                                          app_config, col, row_offset, weight,
+                                          true_degree);
     } else {
-      VID_T** col = (VID_T**) malloc(sizeof(VID_T*));
-      size_t** row_offset = (size_t**) malloc(sizeof(size_t*));
       CreateAndQueryWithPreprocess<OID_T, VID_T, VDATA_T, EDATA_T,
                                    grape::LoadStrategy::kOnlyOut, LCCOPT, LCCP>(
           comm_spec, efile, vfile, out_prefix, app_config, col, row_offset);
@@ -352,7 +357,6 @@ void Run() {
   } else {
     LOG(FATAL) << "Invalid app name: " << application;
   }
-  */
 }
 }  // namespace cuda
 }  // namespace grape

@@ -130,7 +130,7 @@ class LCCOPT : public GPUAppBase<FRAG_T, LCCOPTContext<FRAG_T>>,
       grape::MessageStrategy::kAlongOutgoingEdgeToOuterVertex;
   static constexpr grape::LoadStrategy load_strategy =
       grape::LoadStrategy::kOnlyOut;
-  // static constexpr bool need_build_device_vm = true;  // for debug
+  static constexpr bool need_build_device_vm = true;  // for debug
 
   void PEval(const fragment_t& frag, context_t& ctx,
              message_manager_t& messages) {
@@ -152,6 +152,7 @@ class LCCOPT : public GPUAppBase<FRAG_T, LCCOPTContext<FRAG_T>>,
                         message_manager_t& messages) {
     auto d_frag = frag.DeviceObject();
     auto& stream = messages.stream();
+    Stream stream_hi, stream_mi, stream_lo;
     auto vertices = frag.Vertices();
     auto iv = frag.InnerVertices();
     auto ov = frag.OuterVertices();
@@ -169,17 +170,20 @@ class LCCOPT : public GPUAppBase<FRAG_T, LCCOPTContext<FRAG_T>>,
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       ForEach(stream, ws_in, [=] __device__(vertex_t u) mutable {
         size_t idx = u.GetValue();
-        size_t degree = d_row_offset[idx + 1] - d_row_offset[idx];
-        if (degree > 2048) {
-          d_hi_q.Append(u);
-        } else if (degree < 31) {
-          d_lo_q.Append(u);
-        } else {
-          d_mid_q.Append(u);
-        }
+        d_mid_q.Append(vertex_t(idx));
+        // size_t degree = d_row_offset[idx + 1] - d_row_offset[idx];
+        // if (degree > 5000) {
+        //  d_hi_q.Append(vertex_t(idx));
+        //} else if (degree < 0) {
+        //  d_lo_q.Append(vertex_t(idx));
+        //} else {
+        //  d_mid_q.Append(vertex_t(idx));
+        //}
       });
     }
+    stream.Sync();
 
+    double lo_time_start = grape::GetCurrentTime();
     {
       WorkSourceArray<vertex_t> ws_in(lo_q.data(), lo_q.size(stream));
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
@@ -194,7 +198,7 @@ class LCCOPT : public GPUAppBase<FRAG_T, LCCOPTContext<FRAG_T>>,
       bins.resize(bucket_stride * (bucket_size - cached_size) * nblocks, 0);
       auto* global_data = thrust::raw_pointer_cast(bins.data());
       ForEachWithIndexWarpShared(
-          stream, ws_in,
+          stream_lo, ws_in,
           [=] __device__(uint32_t * shm, size_t lane, size_t cid, size_t csize,
                          size_t cnum, size_t idx, vertex_t u) mutable {
             dev::ShmHashTable<uint32_t> hash_table;
@@ -240,14 +244,17 @@ class LCCOPT : public GPUAppBase<FRAG_T, LCCOPTContext<FRAG_T>>,
             }
           });
     }
+    // stream.Sync();
+    double lo_time_end = grape::GetCurrentTime();
 
+    double mi_time_start = grape::GetCurrentTime();
     {
       WorkSourceArray<vertex_t> ws_in(mid_q.data(), mid_q.size(stream));
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_filling_offset = d_row_offset + 1;
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
       ForEachWithIndexWarpDynamic(
-          stream, ws_in,
+          stream_mi, ws_in,
           [=] __device__(size_t lane, size_t idx, vertex_t u) mutable {
             idx = u.GetValue();
             size_t triangle_count = 0;
@@ -271,19 +278,119 @@ class LCCOPT : public GPUAppBase<FRAG_T, LCCOPTContext<FRAG_T>>,
                 triangle_count += tmp;
               }
             }
+
+            /*if (breakpoint < d_filling_offset[idx]) {
+              int thread_lane = threadIdx.x & 31;
+              int warp_lane = threadIdx.x / 32;
+              __shared__ msg_t cache[256];
+              __shared__ msg_t s_v[256];
+              __shared__ size_t s_start_pos[256];
+              __shared__ uint32_t s_row_offset[256];
+              typedef cub::WarpScan<uint32_t, 32> WarpScan;
+              __shared__ typename WarpScan::TempStorage temp_storage[8];
+              int shm_per_warp = 32;
+              int shm_per_thd = 1;
+              int offset = warp_lane * shm_per_warp;
+              msg_t* my_cache = cache + offset;
+              auto edge_begin_u = d_row_offset[idx],
+                   edge_end_u = d_filling_offset[idx];
+              size_t degree_u = edge_end_u - edge_begin_u;
+              size_t left_size = edge_end_u - breakpoint;
+              size_t aligned_left_size =
+                  (left_size & 31) ? (((left_size >> 5) + 1) << 5) : left_size;
+              msg_t* search = &d_col_indices[edge_begin_u];
+              size_t search_size = degree_u;
+              __syncwarp();
+              // sample u'neighbor into cache;
+              for (size_t i = 0; i < shm_per_thd; ++i) {
+                my_cache[i * 32 + thread_lane] =
+                    search[(thread_lane + i * 32) * search_size / shm_per_warp];
+              }
+              __syncwarp();
+              // make all lane can enter this loop;
+              assert(aligned_left_size >= left_size);
+              size_t chunk_size = 1;
+              for (auto eid = breakpoint + thread_lane;
+                   eid < breakpoint + aligned_left_size; eid += chunk_size) {
+                uint32_t active_mask =
+                    __ballot_sync(0xffffffff, eid < breakpoint + left_size &&
+                                                  thread_lane < chunk_size);
+                uint32_t active_num = __popc(active_mask);
+                size_t total_edges = 0;
+                uint32_t degree_v = 0;
+                if (eid < breakpoint + left_size && thread_lane < chunk_size) {
+                  vertex_t v(d_col_indices[eid]);
+                  auto edge_begin_v = d_row_offset[v.GetValue()],
+                       edge_end_v = d_filling_offset[v.GetValue()];
+                  degree_v = edge_end_v - edge_begin_v;
+                  s_v[offset + thread_lane] = v.GetValue();
+                  s_start_pos[offset + thread_lane] = edge_begin_v;
+                  total_edges = degree_v;
+                }
+                __syncwarp();
+                total_edges = dev::warp_reduce(total_edges);
+                WarpScan(temp_storage[warp_lane])
+                    .ExclusiveSum(degree_v, s_row_offset[threadIdx.x]);
+                __syncwarp();
+                // process the agg_edges of this 32 vertices with full
+                // warp
+                size_t aligned_total_edges =
+                    (total_edges & 31) ? (((total_edges >> 5) + 1) << 5)
+                                       : total_edges;
+                for (size_t i = thread_lane; i < aligned_total_edges; i += 32) {
+                  int64_t search_result = -1;
+                  vertex_t v;
+                  if (i < total_edges) {
+                    int loc = thrust::upper_bound(
+                                  thrust::seq, s_row_offset + offset,
+                                  s_row_offset + offset + active_num, i) -
+                              s_row_offset - offset - 1;
+                    assert(loc < active_num);
+                    v = vertex_t(s_v[offset + loc]);
+                    auto edge_begin_v = s_start_pos[offset + loc];
+                    msg_t* lookup = &d_col_indices[edge_begin_v];
+                    size_t lookup_ei = i - s_row_offset[offset + loc];
+                    auto key = lookup[lookup_ei];
+                    search_result = dev::binary_search_2phase(
+                        search, my_cache, key, search_size, shm_per_warp);
+                    if (search_result >= 0) {
+                      dev::atomicAdd64(&d_tricnt[vertex_t(key)], 1);
+                    }
+                  }
+                  uint32_t amask = __ballot_sync(0xffffffff, i < total_edges);
+                  uint32_t smask = __ballot_sync(amask, search_result >= 0);
+                  uint32_t vmask =
+                      __match_any_sync(smask & amask, v.GetValue());
+                  uint32_t v_count = __popc(vmask & smask);
+                  uint32_t leader = __ffs(vmask & smask) - 1;
+                  if (v_count > 0 && thread_lane == leader) {
+                    dev::atomicAdd64(&d_tricnt[v], v_count);
+                    triangle_count += v_count;
+                  }
+                }
+              }
+              triangle_count = dev::warp_reduce(triangle_count);
+            }
+            // if (thread_lane == 0) {
+            //  dev::atomicAdd64(&d_tricnt[u], triangle_count);
+            //}
+            */
             if (lane == 0) {
               dev::atomicAdd64(&d_tricnt[u], triangle_count);
             }
           });
     }
+    // stream.Sync();
+    double mi_time_end = grape::GetCurrentTime();
 
+    double hi_time_start = grape::GetCurrentTime();
     {
       WorkSourceArray<vertex_t> ws_in(hi_q.data(), hi_q.size(stream));
       auto* d_row_offset = thrust::raw_pointer_cast(ctx.row_offset.data());
       auto* d_filling_offset = d_row_offset + 1;
       auto* d_col_indices = thrust::raw_pointer_cast(ctx.col_indices.data());
       ForEachWithIndexBlockDynamic(
-          stream, ws_in,
+          stream_hi, ws_in,
           [=] __device__(size_t lane, size_t idx, vertex_t u) mutable {
             idx = u.GetValue();
             size_t triangle_count = 0;
@@ -314,6 +421,15 @@ class LCCOPT : public GPUAppBase<FRAG_T, LCCOPTContext<FRAG_T>>,
             }
           });
     }
+    // stream.Sync();
+    double hi_time_end = grape::GetCurrentTime();
+    stream_lo.Sync();
+    stream_mi.Sync();
+    stream_hi.Sync();
+
+    // std::cout << frag.fid() << " lo:" << (lo_time_end - lo_time_start) * 1000
+    //          << " mi:" << (mi_time_end - mi_time_start) * 1000
+    //          << " hi:" << (hi_time_end - hi_time_start) * 1000 << std::endl;
 
     {  // send d_tricnt
       WorkSourceRange<vertex_t> ws_in(*ov.begin(), ov.size());
